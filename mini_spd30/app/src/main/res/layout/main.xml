@@ -49,7 +49,7 @@
                     android:shadowDx="2"
                     android:shadowDy="2"
                     android:shadowRadius="2"
-                    android:text="PRAMOD OCTAPAD SPD-30 MINI"
+                    android:text="PRAMOD MINI OCTAPAD SPD-30"
                     android:textColor="#ffffffff"
                     android:textSize="11sp"
                     android:textStyle="bold" />

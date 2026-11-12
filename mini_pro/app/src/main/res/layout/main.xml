@@ -123,7 +123,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="MOBILE OCTAPAD MINI PRAMOD SAHU"
+            android:text="MOBILE OCTAPAD PRAMOD MINI SAHU"
             android:textSize="13sp"
             android:textStyle="bold"
             android:textColor="#FFFFFF"
