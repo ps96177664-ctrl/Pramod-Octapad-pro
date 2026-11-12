@@ -413,14 +413,14 @@ public class MainActivity extends Activity {
         strArr[4] = "Deepchandi Patch";
         strArr[5] = "Bhanda Huk Patch";
         strArr[6] = "Disco Patch";
-        strArr[7] = "Dhumal Patch";
-        strArr[8] = "Gaura Gauri Patch";
-        strArr[9] = "Dandiya Patch";
-        strArr[10] = "CG Patch";
-        strArr[11] = "Jasgeet Jhanj Patch";
-        strArr[12] = "CG Karma Patch";
-        strArr[13] = "CG Sambalpuri";
-        strArr[14] = "Nagpuri Patch";
+        strArr[7] = "Dholak Patch";
+        strArr[8] = "Dhumal Patch";
+        strArr[9] = "Gaura Gauri Patch";
+        strArr[10] = "Sher Taal Patch";
+        strArr[11] = "Ghumar Patch";
+        strArr[12] = "Garba Dandia Patch";
+        strArr[13] = "Chhattisgarhi Patch";
+        strArr[14] = "CG Jasgeet Patch";
 
         for (int i2 = 0; i2 < this.presetKitNames.length; i2++) {
             String suffix = i2 == 0 ? "" : String.valueOf(i2 + 1);
