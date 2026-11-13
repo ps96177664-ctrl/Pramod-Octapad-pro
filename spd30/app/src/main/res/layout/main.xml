@@ -417,6 +417,7 @@
                         android:id="@+id/seekPitch"
                         style="@style/SpdSlider"
                         android:layout_width="0dp"
+                        android:minWidth="120dp"
                         android:layout_weight="1"
                         android:max="150" />
 
