@@ -404,12 +404,20 @@
         <TextView android:textSize="10sp" android:textStyle="bold" android:textColor="#ffffffff"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="PTCH:"/>
+        <Button android:textColor="#ffffffff" android:background="@drawable/btn_3d_dark"
+            android:layout_width="28dp" android:layout_height="30dp"
+            android:contentDescription="Decrease loop pitch" android:text="-"
+            android:onClick="onPitchMinus"/>
         <SeekBar android:id="@+id/seekPitch" android:layout_width="0dp"
             android:layout_height="wrap_content" android:max="200" android:progress="100"
             android:layout_weight="1"/>
+        <Button android:textColor="#ffffffff" android:background="@drawable/btn_3d_dark"
+            android:layout_width="28dp" android:layout_height="30dp"
+            android:contentDescription="Increase loop pitch" android:text="+"
+            android:onClick="onPitchPlus"/>
         <TextView android:textSize="10sp" android:textColor="#ff00afff" android:gravity="end"
             android:id="@+id/txtPitchVal" android:layout_width="30dp"
-            android:layout_height="wrap_content" android:text="1.0x"/>
+            android:layout_height="wrap_content" android:text="1.00x"/>
         <View android:background="#ff555555" android:layout_width="1dp"
             android:layout_height="20dp" android:layout_marginStart="6dp" android:layout_marginEnd="6dp"/>
         <Button android:textSize="8sp" android:textStyle="bold" android:textColor="#ffffffff"

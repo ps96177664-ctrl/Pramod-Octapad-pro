@@ -19,7 +19,9 @@
         <LinearLayout android:gravity="center" android:orientation="vertical" android:layout_width="0dp" android:layout_height="match_parent" android:layout_marginLeft="4dp" android:layout_weight="2.2">
             <TextView android:textSize="9sp" android:textStyle="bold" android:textColor="#ffffffff" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="PITCH"/>
             <LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="wrap_content">
+                <Button android:layout_width="24dp" android:layout_height="28dp" android:background="@drawable/toggle_pro_off" android:contentDescription="Decrease pad pitch" android:onClick="onPadPitchMinus" android:text="-" android:textColor="#ffffffff" android:textSize="14sp"/>
                 <SeekBar android:id="@+id/seekPitch" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:max="150" android:progressTint="#FF48A9C5" android:progressBackgroundTint="#FF263847" android:thumbTint="#FF83F4FF"/>
+                <Button android:layout_width="24dp" android:layout_height="28dp" android:background="@drawable/toggle_pro_off" android:contentDescription="Increase pad pitch" android:onClick="onPadPitchPlus" android:text="+" android:textColor="#ffffffff" android:textSize="14sp"/>
                 <TextView android:id="@+id/txtPitchValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginLeft="4dp" android:text="0%" android:textColor="#FF83F4FF" android:textSize="8sp" android:textStyle="bold"/>
             </LinearLayout>
         </LinearLayout>
@@ -106,7 +108,9 @@
             <SeekBar android:id="@+id/seekMasterVolume" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginLeft="4dp" android:layout_marginRight="8dp" android:max="100"/>
             <TextView android:id="@+id/txtMasterVolumeValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0%" android:textColor="#FF83F4FF" android:textSize="8sp" android:textStyle="bold"/>
             <TextView android:textSize="9sp" android:textStyle="bold" android:textColor="#ff00ff00" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="M-PITCH"/>
+            <Button android:layout_width="24dp" android:layout_height="28dp" android:layout_marginLeft="2dp" android:background="@drawable/toggle_pro_off" android:contentDescription="Decrease master pitch" android:onClick="onMasterPitchMinus" android:text="-" android:textColor="#ffffffff" android:textSize="14sp"/>
             <SeekBar android:id="@+id/seekMasterPitch" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginLeft="4dp" android:layout_marginRight="4dp" android:max="200"/>
+            <Button android:layout_width="24dp" android:layout_height="28dp" android:background="@drawable/toggle_pro_off" android:contentDescription="Increase master pitch" android:onClick="onMasterPitchPlus" android:text="+" android:textColor="#ffffffff" android:textSize="14sp"/>
             <TextView android:id="@+id/txtMasterPitchValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0%" android:textColor="#FF83F4FF" android:textSize="8sp" android:textStyle="bold"/>
         </LinearLayout>
     </LinearLayout>

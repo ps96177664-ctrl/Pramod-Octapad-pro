@@ -2159,6 +2159,40 @@ public class MainActivity extends Activity {
         updateSeekBarPercentageValue(this.seekChokeGroup, this.txtChokeGroupValue);
     }
 
+    public void onPadPitchMinus(View view) {
+        adjustPadPitch(-1);
+    }
+
+    public void onPadPitchPlus(View view) {
+        adjustPadPitch(1);
+    }
+
+    private void adjustPadPitch(int amount) {
+        if (seekPitch == null) return;
+        int previousProgress = seekPitch.getProgress();
+        seekPitch.setProgress(Math.max(0, Math.min(seekPitch.getMax(), previousProgress + amount)));
+        if (seekPitch.getProgress() != previousProgress) {
+            saveKitToMemory(kitIndex);
+        }
+    }
+
+    public void onMasterPitchMinus(View view) {
+        adjustMasterPitch(-1);
+    }
+
+    public void onMasterPitchPlus(View view) {
+        adjustMasterPitch(1);
+    }
+
+    private void adjustMasterPitch(int amount) {
+        if (seekMasterPitch == null) return;
+        int previousProgress = seekMasterPitch.getProgress();
+        seekMasterPitch.setProgress(Math.max(0, Math.min(seekMasterPitch.getMax(), previousProgress + amount)));
+        if (seekMasterPitch.getProgress() != previousProgress) {
+            prefs.edit().putFloat("drum_master_pitch", drumMasterPitch).apply();
+        }
+    }
+
     private void initSeekBars() {
         this.seekVolume.setMax(100);
         this.seekPitch.setMax(100);

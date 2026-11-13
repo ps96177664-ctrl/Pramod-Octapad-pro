@@ -1375,6 +1375,19 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
         updateScaleUI();
     }
 
+    public void onPitchMinus(View view) {
+        adjustLoopPitch(-1);
+    }
+
+    public void onPitchPlus(View view) {
+        adjustLoopPitch(1);
+    }
+
+    private void adjustLoopPitch(int amount) {
+        if (seekPitch == null) return;
+        seekPitch.setProgress(Math.max(10, Math.min(seekPitch.getMax(), seekPitch.getProgress() + amount)));
+    }
+
     public void onStopLoopClick(View view) {
         try {
             // Use stopAll() unconditionally instead of checking loopPlaying[i].
@@ -1901,7 +1914,7 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
                     if (txtTempoVal != null) txtTempoVal.setText(
                         String.format(java.util.Locale.US, "%.0f BPM (%.1fx)", spd * 120f, spd));
                     if (txtPitchVal != null) txtPitchVal.setText(
-                        String.format(java.util.Locale.US, "%.1fx", pit));
+                        String.format(java.util.Locale.US, "%.2fx", pit));
                     // Apply restored speed to any currently playing loops immediately
                     updateAllActiveLoops();
                     Toast.makeText(this, "⏱ Tempo Sync OFF — kit ka original BPM+Pitch restore hua", Toast.LENGTH_SHORT).show();
@@ -2382,7 +2395,7 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
                 } else if (seekBar.getId() == R.id.seekPitch) {
                     LoopsActivity.this.currentPitch = value;
                     if (LoopsActivity.this.txtPitchVal != null) {
-                        LoopsActivity.this.txtPitchVal.setText(String.format("%.1fx", Float.valueOf(LoopsActivity.this.currentPitch)));
+                        LoopsActivity.this.txtPitchVal.setText(String.format(java.util.Locale.US, "%.2fx", LoopsActivity.this.currentPitch));
                     }
                 } else if (seekBar.getId() == R.id.seekMasterVolume) {
                     float vol = progress / 100.0f;
@@ -3827,7 +3840,7 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
             if (seekTempo != null) seekTempo.setProgress((int)(spd * 100));
             if (seekPitch != null) seekPitch.setProgress((int)(pit * 100));
             if (txtTempoVal != null) txtTempoVal.setText(String.format(java.util.Locale.US, "%.0f BPM (%.1fx)", spd * 120f, spd));
-            if (txtPitchVal != null) txtPitchVal.setText(String.format(java.util.Locale.US, "%.1fx", pit));
+            if (txtPitchVal != null) txtPitchVal.setText(String.format(java.util.Locale.US, "%.2fx", pit));
         } else {
             // Sync is ON: save pre-sync backup for this kit (first visit under sync).
             // If backup already exists we skip — never overwrite with the sync value.
@@ -4531,7 +4544,7 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
                 int prog = Math.round(newPitch * 100f); // seekPitch max=200, 100=1.0x
                 if (seekPitch != null) seekPitch.setProgress(prog);
                 if (txtPitchVal != null)
-                    txtPitchVal.setText(String.format(java.util.Locale.US, "%.1fx", currentPitch));
+                    txtPitchVal.setText(String.format(java.util.Locale.US, "%.2fx", currentPitch));
                 // Debounce: rapid CC flooding can overflow the 128-entry cmdQ.
                 // Apply with a short delay identical to the seekbar path.
                 if (speedPitchRunnable != null) speedPitchHandler.removeCallbacks(speedPitchRunnable);
@@ -4631,7 +4644,7 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
                 currentPitch = Math.max(0.1f, currentPitch - 0.01f);
                 if (seekPitch != null) seekPitch.setProgress((int)(currentPitch * 100f));
                 if (txtPitchVal != null)
-                    txtPitchVal.setText(String.format(java.util.Locale.US, "%.1fx", currentPitch));
+                    txtPitchVal.setText(String.format(java.util.Locale.US, "%.2fx", currentPitch));
                 updateAllActiveLoops();
             });
 
@@ -4643,7 +4656,7 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
                 currentPitch = Math.min(2f, currentPitch + 0.01f);
                 if (seekPitch != null) seekPitch.setProgress((int)(currentPitch * 100f));
                 if (txtPitchVal != null)
-                    txtPitchVal.setText(String.format(java.util.Locale.US, "%.1fx", currentPitch));
+                    txtPitchVal.setText(String.format(java.util.Locale.US, "%.2fx", currentPitch));
                 updateAllActiveLoops();
             });
 
