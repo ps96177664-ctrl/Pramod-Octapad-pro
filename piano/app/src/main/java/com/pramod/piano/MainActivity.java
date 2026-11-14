@@ -1,6 +1,7 @@
 package com.pramod.piano;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
@@ -18,6 +19,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
+import android.util.LruCache;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
@@ -54,6 +57,8 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
     private static final String CUSTOM_PRESETS_PREFS = "custom_audio_presets";
     private static final String FAVORITE_BANKS_PREFS = "favorite_instrument_banks";
     private static final String INSTRUMENT_ASSET_DIRECTORY = "instruments";
+    private static final int MAX_DECODED_SAMPLE_CACHE_KB = 32 * 1024;
+    private static final int MIN_DECODED_SAMPLE_CACHE_KB = 8 * 1024;
 
     static {
         System.loadLibrary("piano_audio_engine");
@@ -88,6 +93,7 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
     private final List<Button> favoriteBankButtons = new ArrayList<>();
     private final ExecutorService sampleDecoder = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private LruCache<String, DecodedAudio> decodedSampleCache;
 
     private native boolean nativeCreate();
     private native void nativeDestroy();
@@ -103,6 +109,7 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        initializeDecodedSampleCache();
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
@@ -161,6 +168,28 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
         findViewById(R.id.btnPresetPrevious).setOnClickListener(v -> movePreset(-1));
         findViewById(R.id.btnPresetNext).setOnClickListener(v -> movePreset(1));
         findViewById(R.id.btnImportAudio).setOnClickListener(v -> openAudioPicker());
+        findViewById(R.id.btnPresetList).setOnClickListener(v -> {
+            if (presetOptions.isEmpty()) {
+                status.setText("Preset kits are still loading");
+            } else {
+                presetSpinner.performClick();
+            }
+        });
+    }
+
+    private void initializeDecodedSampleCache() {
+        ActivityManager activityManager =
+                (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        int memoryClassKb = activityManager.getMemoryClass() * 1024;
+        int cacheSizeKb = Math.max(MIN_DECODED_SAMPLE_CACHE_KB,
+                Math.min(MAX_DECODED_SAMPLE_CACHE_KB, memoryClassKb / 8));
+        decodedSampleCache = new LruCache<String, DecodedAudio>(cacheSizeKb) {
+            @Override
+            protected int sizeOf(String key, DecodedAudio audio) {
+                long sizeKb = (long) audio.pcm.length * Float.BYTES / 1024L;
+                return (int) Math.max(1L, Math.min(Integer.MAX_VALUE, sizeKb));
+            }
+        };
     }
 
     private void movePreset(int direction) {
@@ -620,6 +649,7 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
             runOnUiThread(() -> {
                 sampleOptions.addAll(imported);
                 rebuildPresetOptions();
+                preloadInstrumentSamples();
                 if (!failures.isEmpty()) {
                     status.setText(imported.size() + " sound(s) imported; "
                             + failures.size() + " could not be added");
@@ -759,6 +789,7 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
             }
             bindPresetSpinner();
             presetSpinner.setSelection(0);
+            preloadInstrumentSamples();
             refreshFavoriteBankLabels();
         } catch (IOException error) {
             status.setText("Could not read the bundled instrument list");
@@ -782,15 +813,39 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
         presetSpinner.setEnabled(!presetOptions.isEmpty());
     }
 
+    private void preloadInstrumentSamples() {
+        if (isFinishing() || isDestroyed() || sampleOptions.isEmpty()) return;
+        preloadInstrumentSamples(new ArrayList<>(sampleOptions), 0);
+    }
+
+    private void preloadInstrumentSamples(List<PresetOption> options, int index) {
+        if (isFinishing() || isDestroyed() || index >= options.size()) return;
+        PresetOption option = options.get(index);
+        sampleDecoder.execute(() -> {
+            if (decodedSampleCache.get(option.key) == null) {
+                try {
+                    decodedSampleCache.put(option.key, decodeInstrumentPreset(option));
+                } catch (IOException | IllegalStateException error) {
+                    Log.w("Piano", "Could not preload instrument " + option.label, error);
+                }
+            }
+            mainHandler.postDelayed(() -> preloadInstrumentSamples(options, index + 1), 50);
+        });
+    }
+
     private void loadInstrumentPreset(PresetOption option, int generation) {
         try {
-            File source = option.customFileName == null
-                    ? copyInstrumentToCache(option.assetName)
-                    : new File(getFilesDir(), "custom-instruments/" + option.customFileName);
-            DecodedAudio audio = decodeAudio(source);
+            DecodedAudio audio = decodedSampleCache.get(option.key);
+            if (audio == null) {
+                audio = decodeInstrumentPreset(option);
+                decodedSampleCache.put(option.key, audio);
+            }
+            DecodedAudio decodedAudio = audio;
+            boolean loaded = engineReady && nativeSetSample(decodedAudio.pcm,
+                    decodedAudio.sampleRate, decodedAudio.channels);
             runOnUiThread(() -> {
                 if (isFinishing() || generation != presetLoadGeneration) return;
-                if (nativeSetSample(audio.pcm, audio.sampleRate, audio.channels)) {
+                if (loaded) {
                     presetReady = true;
                     activeInstrument.setText(option.label);
                     status.setText(option.label + " • ready");
@@ -807,6 +862,13 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
                 Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show();
             });
         }
+    }
+
+    private DecodedAudio decodeInstrumentPreset(PresetOption option) throws IOException {
+        File source = option.customFileName == null
+                ? copyInstrumentToCache(option.assetName)
+                : new File(getFilesDir(), "custom-instruments/" + option.customFileName);
+        return decodeAudio(source);
     }
 
     private File copyInstrumentToCache(String assetName) throws IOException {

@@ -116,6 +116,8 @@ public final class LoginActivity extends Activity {
         signInButton = new Button(this);
         signInButton.setText("Continue with Google");
         signInButton.setAllCaps(false);
+        signInButton.setEnabled(false);
+        signInButton.setVisibility(View.INVISIBLE);
         card.addView(signInButton, matchWidth(dp(48)));
 
         signOutButton = new Button(this);
@@ -172,6 +174,7 @@ public final class LoginActivity extends Activity {
         clearAccessListener();
         pendingRequestSent = false;
         signInButton.setEnabled(false);
+        signInButton.setVisibility(View.GONE);
         signOutButton.setVisibility(View.VISIBLE);
 
         accessRef = FirebaseDatabase.getInstance(DATABASE_URL)
@@ -253,6 +256,7 @@ public final class LoginActivity extends Activity {
     private void showSignedOut() {
         pendingRequestSent = false;
         signInButton.setEnabled(true);
+        signInButton.setVisibility(View.VISIBLE);
         signOutButton.setVisibility(View.GONE);
         status.setText("Sign in with the Google account registered by the admin.");
     }
@@ -261,8 +265,10 @@ public final class LoginActivity extends Activity {
         status.setText(message == null || message.trim().isEmpty()
                 ? "An unexpected sign-in error occurred."
                 : message);
-        signInButton.setEnabled(auth.getCurrentUser() == null);
-        signOutButton.setVisibility(auth.getCurrentUser() == null ? View.GONE : View.VISIBLE);
+        boolean signedIn = auth.getCurrentUser() != null;
+        signInButton.setEnabled(!signedIn);
+        signInButton.setVisibility(signedIn ? View.GONE : View.VISIBLE);
+        signOutButton.setVisibility(signedIn ? View.VISIBLE : View.GONE);
     }
 
     private void clearAccessListener() {
