@@ -53,15 +53,6 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
     private static final int FAVORITE_BANK_COUNT = 10;
     private static final String CUSTOM_PRESETS_PREFS = "custom_audio_presets";
     private static final String FAVORITE_BANKS_PREFS = "favorite_instrument_banks";
-    private static final int[] CHORD_ROOTS = {60, 67, 57, 65, 62, 64, 59, 60};
-    private static final String[] CHORD_NAMES = {
-            "C MAJOR", "G MAJOR", "A MINOR", "F MAJOR",
-            "D MINOR", "E MINOR", "B DIM", "C MAJOR 7"
-    };
-    private static final int[][] CHORD_INTERVALS = {
-            {0, 4, 7}, {0, 4, 7}, {0, 3, 7}, {0, 4, 7},
-            {0, 3, 7}, {0, 3, 7}, {0, 3, 6}, {0, 4, 7, 11}
-    };
     private static final String INSTRUMENT_ASSET_DIRECTORY = "instruments";
 
     static {
@@ -130,7 +121,6 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
         pitchBendView.setBendListener(value -> {
             if (engineReady) nativePitchBend(0, value);
         });
-        setupChordButtons();
         setupSoundFontPicker();
         setupOctaveAndScrollLock();
         setupAudioControls();
@@ -146,38 +136,6 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
             nativeSetMasterVolume(0.8f);
             nativeSetEqualizer(0f, 0f, 0f);
             loadBundledInstrumentPresets();
-        }
-    }
-
-    private void setupChordButtons() {
-        LinearLayout chordRow = findViewById(R.id.chordRow);
-        for (int chordIndex = 0; chordIndex < CHORD_NAMES.length; chordIndex++) {
-            final int index = chordIndex;
-            Button chord = new Button(this);
-            chord.setText(CHORD_NAMES[chordIndex]);
-            chord.setTextColor(0xFFEAF1FF);
-            chord.setTextSize(10f);
-            chord.setAllCaps(false);
-            chord.setMinWidth(dp(60));
-            chord.setPadding(dp(4), 0, dp(4), 0);
-            chord.setBackgroundResource(R.drawable.chord_button);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
-            params.setMargins(dp(3), dp(2), dp(3), dp(2));
-            chordRow.addView(chord, params);
-            chord.setOnTouchListener((view, event) -> {
-                int action = event.getActionMasked();
-                if (action == android.view.MotionEvent.ACTION_DOWN) {
-                    playChord(index, true);
-                    return true;
-                }
-                if (action == android.view.MotionEvent.ACTION_UP
-                        || action == android.view.MotionEvent.ACTION_CANCEL) {
-                    playChord(index, false);
-                    return true;
-                }
-                return true;
-            });
         }
     }
 
@@ -566,21 +524,6 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
         octaveShift = next;
         keyboard.setTransposeSemitones(octaveShift * 12);
         octaveLabel.setText("OCT " + (octaveShift > 0 ? "+" : "") + octaveShift);
-    }
-
-    private void playChord(int chordIndex, boolean on) {
-        if (!engineReady || !presetReady) return;
-        int[] intervals = CHORD_INTERVALS[chordIndex];
-        for (int interval : intervals) {
-            int note = CHORD_ROOTS[chordIndex] + interval;
-            if (on) {
-                nativeNoteOn(0, note, 100);
-                sendMidiNote(true, note, 100);
-            } else {
-                nativeNoteOff(0, note);
-                sendMidiNote(false, note, 0);
-            }
-        }
     }
 
     private void setupSoundFontPicker() {
