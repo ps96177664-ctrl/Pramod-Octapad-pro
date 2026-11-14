@@ -2144,6 +2144,31 @@ public class MainActivity extends Activity {
         adjustPadPitch(1);
     }
 
+    public void onDelayTimeMinus(View view) {
+        adjustDelayTime(-1);
+    }
+
+    public void onDelayTimePlus(View view) {
+        adjustDelayTime(1);
+    }
+
+    private void adjustDelayTime(int amount) {
+        if (seekDelayTime == null) return;
+        int previousProgress = seekDelayTime.getProgress();
+        int progress = Math.max(0, Math.min(seekDelayTime.getMax(), previousProgress + amount));
+        if (progress == previousProgress) return;
+        seekDelayTime.setProgress(progress);
+        if (bankMode == BANK_B) {
+            padDelayTimeB[selectedPad] = progress;
+        } else {
+            padDelayTime[selectedPad] = progress;
+            if (bankMode == LAYER_AB) {
+                padDelayTimeB[selectedPad] = progress;
+            }
+        }
+        saveKitToMemory(kitIndex);
+    }
+
     private void adjustPadPitch(int amount) {
         if (seekPitch == null) return;
         int previousProgress = seekPitch.getProgress();

@@ -198,14 +198,43 @@
                         android:textSize="7sp"
                         android:textStyle="bold" />
 
-                    <SeekBar
-                        android:id="@+id/seekPitch"
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:max="150"
-                        android:progressBackgroundTint="#ff55595c"
-                        android:progressTint="#ff168bff"
-                        android:thumbTint="#ff73c8ff" />
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <Button
+                            android:layout_width="30dp"
+                            android:layout_height="30dp"
+                            android:background="@drawable/spd20_red_button"
+                            android:contentDescription="Decrease pad pitch"
+                            android:onClick="onPadPitchMinus"
+                            android:text="-"
+                            android:textColor="#ffffffff"
+                            android:textSize="16sp" />
+
+                        <Button
+                            android:layout_width="30dp"
+                            android:layout_height="30dp"
+                            android:layout_marginLeft="3dp"
+                            android:background="@drawable/spd20_red_button"
+                            android:contentDescription="Increase pad pitch"
+                            android:onClick="onPadPitchPlus"
+                            android:text="+"
+                            android:textColor="#ffffffff"
+                            android:textSize="16sp" />
+
+                        <SeekBar
+                            android:id="@+id/seekPitch"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:max="150"
+                            android:progressBackgroundTint="#ff55595c"
+                            android:progressTint="#ff168bff"
+                            android:thumbTint="#ff73c8ff" />
+                    </LinearLayout>
                     <TextView
                         android:id="@+id/txtPitchValue"
                         android:layout_width="wrap_content"
@@ -299,7 +328,11 @@
         <CheckBox android:textSize="10sp" android:textColor="#ff00ffff" android:id="@+id/chkDelay" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="DLY"/>
         <LinearLayout android:gravity="center" android:orientation="vertical" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1">
             <TextView android:textSize="9sp" android:textStyle="bold" android:textColor="#ffffffff" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="TIME"/>
-            <SeekBar android:id="@+id/seekDelayTime" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="500"/>
+            <LinearLayout android:gravity="center" android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="wrap_content">
+                <Button android:layout_width="28dp" android:layout_height="26dp" android:background="@drawable/spd20_red_button" android:contentDescription="Decrease delay time" android:onClick="onDelayTimeMinus" android:text="-" android:textColor="#ffffffff" android:textSize="14sp"/>
+                <SeekBar android:id="@+id/seekDelayTime" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:max="500"/>
+                <Button android:layout_width="28dp" android:layout_height="26dp" android:background="@drawable/spd20_red_button" android:contentDescription="Increase delay time" android:onClick="onDelayTimePlus" android:text="+" android:textColor="#ffffffff" android:textSize="14sp"/>
+            </LinearLayout>
             <TextView android:id="@+id/txtDelayTimeValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0%" android:textColor="#ff73c8ff" android:textSize="8sp" android:textStyle="bold"/>
         </LinearLayout>
         <LinearLayout android:gravity="center" android:orientation="vertical" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1">

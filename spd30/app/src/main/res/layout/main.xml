@@ -592,7 +592,9 @@
 
                     <LinearLayout android:layout_width="match_parent" android:layout_height="32dp" android:gravity="center_vertical" android:orientation="horizontal">
                         <TextView style="@style/SpdSliderLabel" android:text="Echo spacing (ms)" />
+                        <Button android:layout_width="28dp" android:layout_height="28dp" android:background="@drawable/spd30_key_gray" android:contentDescription="Decrease delay time" android:onClick="onDelayTimeMinus" android:text="-" android:textColor="#ff202326" android:textSize="14sp" />
                         <SeekBar android:id="@+id/seekDelayTime" style="@style/SpdSlider" android:layout_width="0dp" android:layout_weight="1" android:max="500" />
+                        <Button android:layout_width="28dp" android:layout_height="28dp" android:background="@drawable/spd30_key_gray" android:contentDescription="Increase delay time" android:onClick="onDelayTimePlus" android:text="+" android:textColor="#ff202326" android:textSize="14sp" />
                         <TextView android:id="@+id/txtDelayTimeValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginLeft="6dp" android:text="0%" android:textColor="#ff1fd0ff" android:textSize="9sp" android:textStyle="bold" />
                     </LinearLayout>
                     <LinearLayout android:layout_width="match_parent" android:layout_height="32dp" android:gravity="center_vertical" android:orientation="horizontal">
