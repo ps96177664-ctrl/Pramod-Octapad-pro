@@ -328,32 +328,32 @@
         <CheckBox android:textSize="10sp" android:textColor="#ff00ffff" android:id="@+id/chkDelay" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="DLY"/>
         <LinearLayout android:gravity="center" android:orientation="vertical" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1">
             <TextView android:textSize="9sp" android:textStyle="bold" android:textColor="#ffffffff" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="TIME"/>
-            <LinearLayout android:gravity="center" android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="wrap_content">
-                <Button android:layout_width="28dp" android:layout_height="26dp" android:background="@drawable/spd20_red_button" android:contentDescription="Decrease delay time" android:onClick="onDelayTimeMinus" android:text="-" android:textColor="#ffffffff" android:textSize="14sp"/>
-                <SeekBar android:id="@+id/seekDelayTime" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:max="500"/>
-                <Button android:layout_width="28dp" android:layout_height="26dp" android:background="@drawable/spd20_red_button" android:contentDescription="Increase delay time" android:onClick="onDelayTimePlus" android:text="+" android:textColor="#ffffffff" android:textSize="14sp"/>
+            <LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="24dp">
+                <Button android:layout_width="22dp" android:layout_height="22dp" android:padding="0dp" android:background="@drawable/spd20_red_button" android:contentDescription="Decrease delay time" android:onClick="onDelayTimeMinus" android:text="-" android:textColor="#ffffffff" android:textSize="12sp"/>
+                <SeekBar android:id="@+id/seekDelayTime" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:max="500" android:progressBackgroundTint="#ff55595c" android:progressTint="#ff168bff" android:thumbTint="#ff73c8ff"/>
+                <Button android:layout_width="22dp" android:layout_height="22dp" android:padding="0dp" android:background="@drawable/spd20_red_button" android:contentDescription="Increase delay time" android:onClick="onDelayTimePlus" android:text="+" android:textColor="#ffffffff" android:textSize="12sp"/>
+                <TextView android:id="@+id/txtDelayTimeValue" android:layout_width="28dp" android:layout_height="wrap_content" android:gravity="end" android:text="0%" android:textColor="#ff73c8ff" android:textSize="8sp" android:textStyle="bold"/>
             </LinearLayout>
-            <TextView android:id="@+id/txtDelayTimeValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0%" android:textColor="#ff73c8ff" android:textSize="8sp" android:textStyle="bold"/>
         </LinearLayout>
         <LinearLayout android:gravity="center" android:orientation="vertical" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1">
             <TextView android:textSize="9sp" android:textStyle="bold" android:textColor="#ffffffff" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="LEVEL"/>
-            <SeekBar android:id="@+id/seekDelayLevel" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="100"/>
+            <SeekBar android:id="@+id/seekDelayLevel" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="100" android:progressBackgroundTint="#ff55595c" android:progressTint="#ff168bff" android:thumbTint="#ff73c8ff"/>
             <TextView android:id="@+id/txtDelayLevelValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0%" android:textColor="#ff73c8ff" android:textSize="8sp" android:textStyle="bold"/>
         </LinearLayout>
         <View android:background="#ff444444" android:layout_width="1dp" android:layout_height="match_parent" android:layout_margin="4dp"/>
         <LinearLayout android:gravity="center" android:orientation="vertical" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1">
             <TextView android:textSize="9sp" android:textStyle="bold" android:textColor="#ffffffff" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="HI-EQ"/>
-            <SeekBar android:id="@+id/seekEqHigh" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="200"/>
+            <SeekBar android:id="@+id/seekEqHigh" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="200" android:progressBackgroundTint="#ff55595c" android:progressTint="#ff168bff" android:thumbTint="#ff73c8ff"/>
             <TextView android:id="@+id/txtEqHighValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0%" android:textColor="#ff73c8ff" android:textSize="8sp" android:textStyle="bold"/>
         </LinearLayout>
         <LinearLayout android:gravity="center" android:orientation="vertical" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1">
             <TextView android:textSize="9sp" android:textStyle="bold" android:textColor="#ffffffff" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="MID-EQ"/>
-            <SeekBar android:id="@+id/seekEqMid" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="200"/>
+            <SeekBar android:id="@+id/seekEqMid" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="200" android:progressBackgroundTint="#ff55595c" android:progressTint="#ff168bff" android:thumbTint="#ff73c8ff"/>
             <TextView android:id="@+id/txtEqMidValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0%" android:textColor="#ff73c8ff" android:textSize="8sp" android:textStyle="bold"/>
         </LinearLayout>
         <LinearLayout android:gravity="center" android:orientation="vertical" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1">
             <TextView android:textSize="9sp" android:textStyle="bold" android:textColor="#ffffffff" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="LOW-EQ"/>
-            <SeekBar android:id="@+id/seekEqLow" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="200"/>
+            <SeekBar android:id="@+id/seekEqLow" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="200" android:progressBackgroundTint="#ff55595c" android:progressTint="#ff168bff" android:thumbTint="#ff73c8ff"/>
             <TextView android:id="@+id/txtEqLowValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0%" android:textColor="#ff73c8ff" android:textSize="8sp" android:textStyle="bold"/>
         </LinearLayout>
     </LinearLayout>
