@@ -877,9 +877,10 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
                         audio.sampleRate, audio.channels);
                 loaded = cached && nativeSelectCachedSample(option.key);
             }
+            final boolean sampleLoaded = loaded;
             runOnUiThread(() -> {
                 if (isFinishing() || generation != presetLoadGeneration) return;
-                if (loaded) {
+                if (sampleLoaded) {
                     presetReady = true;
                     activeInstrument.setText(option.label);
                     status.setText(option.label + " • ready");
