@@ -1,6 +1,7 @@
 package com.pramod.loopmidi.admin;
 
 import android.content.Intent;
+import android.graphics.Typeface;
 import android.os.Bundle;
 import android.text.InputType;
 import android.text.TextUtils;
@@ -46,7 +47,7 @@ public class AdminLoginActivity extends AppCompatActivity {
 
     private void buildUi() {
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(0xff111111);
+        scroll.setBackgroundColor(AdminUiStyle.BACKGROUND);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -57,45 +58,51 @@ public class AdminLoginActivity extends AppCompatActivity {
                 ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
         scroll.addView(root);
 
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(pad, dp(28), pad, dp(24));
+        AdminUiStyle.applyPanel(card, this, false);
+
         TextView title = new TextView(this);
         title.setText("Pramod Octapad \u2014 Admin Panel");
-        title.setTextColor(0xff00afff);
-        title.setTextSize(20);
+        title.setTextColor(AdminUiStyle.TEXT);
+        title.setTextSize(21);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         title.setGravity(Gravity.CENTER);
-        root.addView(title);
+        card.addView(title);
 
         TextView sub = new TextView(this);
         sub.setText("Sirf admin ke Gmail se login hoga");
-        sub.setTextColor(0xffaaaaaa);
+        sub.setTextColor(AdminUiStyle.MUTED);
         sub.setTextSize(12);
         sub.setGravity(Gravity.CENTER);
         sub.setPadding(0, dp(4), 0, dp(24));
-        root.addView(sub);
+        card.addView(sub);
 
         editEmail = new EditText(this);
         editEmail.setHint("Admin Gmail");
         editEmail.setText(ADMIN_EMAIL);
-        editEmail.setTextColor(0xffffffff);
-        editEmail.setHintTextColor(0xff888888);
-        root.addView(editEmail, matchWidthParams(0));
+        AdminUiStyle.styleInput(editEmail, this);
+        card.addView(editEmail, matchWidthParams(dp(12)));
 
         editPassword = new EditText(this);
         editPassword.setHint("Password");
         editPassword.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        editPassword.setTextColor(0xffffffff);
-        editPassword.setHintTextColor(0xff888888);
-        root.addView(editPassword, matchWidthParams(dp(8)));
+        AdminUiStyle.styleInput(editPassword, this);
+        card.addView(editPassword, matchWidthParams(dp(10)));
 
         btnLogin = new Button(this);
         btnLogin.setText("LOGIN");
+        AdminUiStyle.styleButton(btnLogin, this, AdminUiStyle.TONE_PRIMARY);
         btnLogin.setOnClickListener(v -> attemptLogin());
-        root.addView(btnLogin, matchWidthParams(dp(16)));
+        card.addView(btnLogin, matchWidthParams(dp(16)));
 
         txtStatus = new TextView(this);
         txtStatus.setTextColor(0xffff6b6b);
         txtStatus.setGravity(Gravity.CENTER);
         txtStatus.setPadding(0, dp(16), 0, 0);
-        root.addView(txtStatus, matchWidthParams(0));
+        card.addView(txtStatus, matchWidthParams(0));
+        root.addView(card, matchWidthParams(0));
 
         setContentView(scroll);
     }

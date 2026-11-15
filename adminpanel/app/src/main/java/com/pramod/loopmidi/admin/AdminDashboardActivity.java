@@ -7,6 +7,8 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.res.ColorStateList;
+import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -222,7 +224,8 @@ public class AdminDashboardActivity extends AppCompatActivity {
 
     private void buildUi() {
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(0xff111111);
+        scroll.setBackgroundColor(AdminUiStyle.BACKGROUND);
+        scroll.setClipToPadding(false);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -235,15 +238,19 @@ public class AdminDashboardActivity extends AppCompatActivity {
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
+        AdminUiStyle.applyPanel(header, this, false);
+        header.setPadding(dp(10), dp(6), dp(8), dp(6));
         TextView title = new TextView(this);
         title.setText("Admin Panel");
-        title.setTextColor(0xff00afff);
-        title.setTextSize(20);
+        title.setTextColor(AdminUiStyle.TEXT);
+        title.setTextSize(22);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         header.addView(title, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         FrameLayout bellContainer = new FrameLayout(this);
         btnExpiredBell = new Button(this);
         btnExpiredBell.setText("🔔");
         btnExpiredBell.setContentDescription("Expired trial users");
+        AdminUiStyle.styleButton(btnExpiredBell, this, AdminUiStyle.TONE_NEUTRAL);
         btnExpiredBell.setTextColor(BELL_IDLE_COLOR);
         btnExpiredBell.setOnClickListener(v -> {
             boolean hasNewRequest = getSharedPreferences(NOTIFICATION_PREFS, MODE_PRIVATE)
@@ -271,10 +278,12 @@ public class AdminDashboardActivity extends AppCompatActivity {
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         btnRefresh = new Button(this);
         btnRefresh.setText("Refresh");
+        AdminUiStyle.styleButton(btnRefresh, this, AdminUiStyle.TONE_PRIMARY);
         btnRefresh.setOnClickListener(v -> refreshLists());
         header.addView(btnRefresh);
         Button btnLogout = new Button(this);
         btnLogout.setText("Logout");
+        AdminUiStyle.styleButton(btnLogout, this, AdminUiStyle.TONE_DANGER);
         btnLogout.setOnClickListener(v -> {
             auth.signOut();
             startActivity(new Intent(this, AdminLoginActivity.class));
@@ -286,8 +295,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
         root.addView(sectionHeader("Search User"), matchWidth(dp(16)));
         editSearch = new EditText(this);
         editSearch.setHint("UID, email, ya name se search karein...");
-        editSearch.setTextColor(0xffffffff);
-        editSearch.setHintTextColor(0xff888888);
+        AdminUiStyle.styleInput(editSearch, this);
         editSearch.setSingleLine(true);
         editSearch.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
@@ -300,7 +308,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
 
         txtSearchEmpty = new TextView(this);
         txtSearchEmpty.setText("User not found");
-        txtSearchEmpty.setTextColor(0xffff4444);
+        txtSearchEmpty.setTextColor(0xffff8992);
         txtSearchEmpty.setTextSize(13);
         txtSearchEmpty.setVisibility(View.GONE);
         root.addView(txtSearchEmpty, matchWidth(dp(2)));
@@ -308,6 +316,8 @@ public class AdminDashboardActivity extends AppCompatActivity {
         root.addView(sectionHeader("Users"), matchWidth(dp(16)));
         LinearLayout filterRow = new LinearLayout(this);
         filterRow.setOrientation(LinearLayout.HORIZONTAL);
+        AdminUiStyle.applyPanel(filterRow, this, false);
+        filterRow.setPadding(dp(6), dp(4), dp(2), dp(4));
         btnFilterPending = makeFilterButton("Pending", true);
         btnFilterActive = makeFilterButton("Active", false);
         btnFilterDeactivated = makeFilterButton("Deactivated", false);
@@ -343,7 +353,12 @@ public class AdminDashboardActivity extends AppCompatActivity {
 
         // Manual activate section
         root.addView(sectionHeader("Manually Activate by UID (fallback)"), matchWidth(dp(24)));
-        buildManualSection(root);
+        LinearLayout manualCard = new LinearLayout(this);
+        manualCard.setOrientation(LinearLayout.VERTICAL);
+        manualCard.setPadding(dp(12), dp(10), dp(12), dp(12));
+        AdminUiStyle.applyPanel(manualCard, this, false);
+        root.addView(manualCard, matchWidth(dp(8)));
+        buildManualSection(manualCard);
 
         setContentView(scroll);
     }
@@ -351,9 +366,8 @@ public class AdminDashboardActivity extends AppCompatActivity {
     private Button makeFilterButton(String label, boolean selected) {
         Button btn = new Button(this);
         btn.setText(label);
-        btn.setTextSize(11);
-        btn.setTextColor(0xffffffff);
-        btn.setBackgroundColor(selected ? 0xff00afff : 0xff333333);
+        AdminUiStyle.styleButton(btn, this, selected
+                ? AdminUiStyle.TONE_PRIMARY : AdminUiStyle.TONE_NEUTRAL);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         p.rightMargin = dp(4);
@@ -368,12 +382,21 @@ public class AdminDashboardActivity extends AppCompatActivity {
     }
 
     private void updateFilterButtons() {
-        btnFilterPending.setBackgroundColor(currentFilter == Filter.PENDING ? 0xff00afff : 0xff333333);
-        btnFilterActive.setBackgroundColor(currentFilter == Filter.ACTIVE ? 0xff00afff : 0xff333333);
-        btnFilterDeactivated.setBackgroundColor(currentFilter == Filter.DEACTIVATED ? 0xff00afff : 0xff333333);
+        setFilterButtonTone(btnFilterPending, currentFilter == Filter.PENDING);
+        setFilterButtonTone(btnFilterActive, currentFilter == Filter.ACTIVE);
+        setFilterButtonTone(btnFilterDeactivated, currentFilter == Filter.DEACTIVATED);
         btnFilterPending.setText("Pending (" + visiblePendingCount() + ")");
         btnFilterActive.setText("Active (" + activeUserCount() + ")");
         btnFilterDeactivated.setText("Deactivated (" + visibleDeactivatedCount() + ")");
+    }
+
+    private void setFilterButtonTone(Button button, boolean selected) {
+        int top = selected ? 0xff27b9ec : 0xff435872;
+        int bottom = selected ? 0xff17629d : 0xff26364b;
+        int stroke = selected ? 0xff7be1ff : 0xff7188a5;
+        button.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x55ffffff),
+                AdminUiStyle.panel(top, bottom, stroke, 12, this), null));
     }
 
     private void buildManualSection(LinearLayout root) {
@@ -382,8 +405,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
         uidRow.setOrientation(LinearLayout.HORIZONTAL);
         editManualUid = new EditText(this);
         editManualUid.setHint("Firebase User UID paste karein");
-        editManualUid.setTextColor(0xffffffff);
-        editManualUid.setHintTextColor(0xff888888);
+        AdminUiStyle.styleInput(editManualUid, this);
         uidRow.addView(editManualUid, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         root.addView(uidRow, matchWidth(dp(4)));
@@ -391,7 +413,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
         // APK checkboxes start unchecked to avoid granting access accidentally.
         TextView apkLabel = new TextView(this);
         apkLabel.setText("Kis APK ka access dena hai:");
-        apkLabel.setTextColor(0xffaaaaaa);
+        apkLabel.setTextColor(AdminUiStyle.MUTED);
         apkLabel.setTextSize(11);
         apkLabel.setPadding(0, dp(4), 0, dp(2));
         root.addView(apkLabel, matchWidth(0));
@@ -413,6 +435,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
 
         Button btnManualActivate = new Button(this);
         btnManualActivate.setText("Activate");
+        AdminUiStyle.styleButton(btnManualActivate, this, AdminUiStyle.TONE_PRIMARY);
         btnManualActivate.setOnClickListener(v -> manualActivate());
         root.addView(btnManualActivate, matchWidth(dp(4)));
     }
@@ -467,17 +490,16 @@ public class AdminDashboardActivity extends AppCompatActivity {
     private View buildPendingRow(String uid, String email, String displayName, String subLine) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
-        row.setBackgroundColor(0xff1c1c1c);
-        int pad = dp(10);
-        row.setPadding(pad, pad, pad, pad);
-        row.setLayoutParams(matchWidth(dp(6)));
+        row.setPadding(dp(14), dp(12), dp(14), dp(12));
+        row.setLayoutParams(matchWidth(dp(10)));
+        AdminUiStyle.applyPanel(row, this, false);
 
         addUserInfoViews(row, uid, email, displayName, subLine);
 
         // APK selection label
         TextView apkLabel = new TextView(this);
         apkLabel.setText("Kis APK ka access dena hai:");
-        apkLabel.setTextColor(0xffaaaaaa);
+        apkLabel.setTextColor(AdminUiStyle.MUTED);
         apkLabel.setTextSize(11);
         apkLabel.setPadding(0, dp(6), 0, dp(2));
         row.addView(apkLabel);
@@ -504,6 +526,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
 
         Button btnActivate = new Button(this);
         btnActivate.setText("Activate");
+        AdminUiStyle.styleButton(btnActivate, this, AdminUiStyle.TONE_PRIMARY);
         btnActivate.setOnClickListener(v ->
                 showActivationTypeDialog(uid, email, displayName,
                         cbFull.isChecked(), cbLoops.isChecked(), cbDrums.isChecked(),
@@ -514,6 +537,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
 
         Button btnReject = new Button(this);
         btnReject.setText("Reject");
+        AdminUiStyle.styleButton(btnReject, this, AdminUiStyle.TONE_DANGER);
         LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         rp.leftMargin = dp(6);
@@ -920,11 +944,9 @@ public class AdminDashboardActivity extends AppCompatActivity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         boolean noAppAccess = !entry.isDeactivated && !entry.hasAnyAppAccess();
-        row.setBackgroundColor(entry.isDeactivated || noAppAccess
-                ? 0xff2a1515 : 0xff1c1c1c);
-        int pad = dp(10);
-        row.setPadding(pad, pad, pad, pad);
-        row.setLayoutParams(matchWidth(dp(6)));
+        row.setPadding(dp(14), dp(12), dp(14), dp(12));
+        row.setLayoutParams(matchWidth(dp(10)));
+        AdminUiStyle.applyPanel(row, this, entry.isDeactivated || noAppAccess);
 
         // Status badge
         TextView txtStatus = new TextView(this);
@@ -932,8 +954,9 @@ public class AdminDashboardActivity extends AppCompatActivity {
                 : entry.isDeactivated ? "❌ DEACTIVATED"
                 : noAppAccess ? "⛔ NO APP ACCESS" : "✅ ACTIVE");
         txtStatus.setTextColor(entry.isDeactivated || noAppAccess
-                ? 0xffff4444 : 0xff44ff44);
+                ? 0xffff8992 : 0xff69e4b1);
         txtStatus.setTextSize(11);
+        txtStatus.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         txtStatus.setPadding(0, 0, 0, dp(2));
         row.addView(txtStatus);
 
@@ -965,6 +988,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
         if (entry.isDeactivated) {
             Button btnReactivate = new Button(this);
             btnReactivate.setText(entry.needsAccessSelection ? "Grant Access" : "Reactivate");
+            AdminUiStyle.styleButton(btnReactivate, this, AdminUiStyle.TONE_PRIMARY);
             btnReactivate.setOnClickListener(v -> {
                 if (entry.needsAccessSelection) {
                     showActivateRegisteredUserDialog(entry);
@@ -977,6 +1001,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
         } else if (noAppAccess) {
             Button btnGrantAccess = new Button(this);
             btnGrantAccess.setText("Grant Access");
+            AdminUiStyle.styleButton(btnGrantAccess, this, AdminUiStyle.TONE_PRIMARY);
             btnGrantAccess.setOnClickListener(v ->
                     showEditAppsDialog(entry.uid, entry.email, entry.displayName,
                             entry.hasFull, entry.hasLoops, entry.hasDrums, entry.hasPro,
@@ -988,12 +1013,14 @@ public class AdminDashboardActivity extends AppCompatActivity {
             // Active user → Deactivate + Edit Apps + Unlock buttons
             Button btnDeactivate = new Button(this);
             btnDeactivate.setText("Deactivate");
+            AdminUiStyle.styleButton(btnDeactivate, this, AdminUiStyle.TONE_DANGER);
             btnDeactivate.setOnClickListener(v -> confirmDeactivate(entry));
             btnRow.addView(btnDeactivate, new LinearLayout.LayoutParams(
                     0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
             Button btnEdit = new Button(this);
             btnEdit.setText("Edit Apps");
+            AdminUiStyle.styleButton(btnEdit, this, AdminUiStyle.TONE_NEUTRAL);
             LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(
                     0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
             ep.leftMargin = dp(6);
@@ -1007,6 +1034,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
             if (!TextUtils.isEmpty(entry.deviceToken)) {
                 Button btnUnlock = new Button(this);
                 btnUnlock.setText("Unlock");
+                AdminUiStyle.styleButton(btnUnlock, this, AdminUiStyle.TONE_NEUTRAL);
                 LinearLayout.LayoutParams up = new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
                 up.leftMargin = dp(6);
@@ -1360,29 +1388,31 @@ public class AdminDashboardActivity extends AppCompatActivity {
         TextView txtName = new TextView(this);
         txtName.setText(!TextUtils.isEmpty(displayName)
                 ? displayName : (!TextUtils.isEmpty(email) ? email : uid));
-        txtName.setTextColor(0xffffffff);
-        txtName.setTextSize(14);
+        txtName.setTextColor(AdminUiStyle.TEXT);
+        txtName.setTextSize(15);
+        txtName.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         row.addView(txtName);
 
         if (!TextUtils.isEmpty(email)) {
             TextView txtEmail = new TextView(this);
             txtEmail.setText(email);
-            txtEmail.setTextColor(0xff00afff);
-            txtEmail.setTextSize(11);
+            txtEmail.setTextColor(AdminUiStyle.ACCENT);
+            txtEmail.setTextSize(12);
             row.addView(txtEmail);
         }
 
         TextView txtUid = new TextView(this);
         txtUid.setText("UID: " + uid);
-        txtUid.setTextColor(0xff666666);
+        txtUid.setTextColor(AdminUiStyle.MUTED);
         txtUid.setTextSize(10);
         row.addView(txtUid);
 
         if (!TextUtils.isEmpty(subLine)) {
             TextView txtSub = new TextView(this);
             txtSub.setText(subLine);
-            txtSub.setTextColor(0xffaaaaaa);
+            txtSub.setTextColor(0xffc2d3e7);
             txtSub.setTextSize(11);
+            txtSub.setLineSpacing(dp(2), 1f);
             row.addView(txtSub);
         }
     }
@@ -1391,7 +1421,11 @@ public class AdminDashboardActivity extends AppCompatActivity {
         CheckBox cb = new CheckBox(this);
         cb.setText(label);
         cb.setChecked(checked);
-        cb.setTextColor(0xffffffff);
+        cb.setTextColor(AdminUiStyle.TEXT);
+        cb.setTextSize(12);
+        cb.setButtonTintList(new ColorStateList(
+                new int[][]{{android.R.attr.state_checked}, {}},
+                new int[]{AdminUiStyle.ACCENT, 0xff7488a2}));
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         p.rightMargin = dp(16);
@@ -1415,17 +1449,23 @@ public class AdminDashboardActivity extends AppCompatActivity {
     private TextView sectionHeader(String text) {
         TextView t = new TextView(this);
         t.setText(text);
-        t.setTextColor(0xffffff00);
-        t.setTextSize(14);
+        t.setTextColor(AdminUiStyle.GOLD);
+        t.setTextSize(13);
+        t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        t.setPadding(dp(12), dp(8), dp(12), dp(8));
+        t.setBackground(AdminUiStyle.panel(0xff26364b, 0xff152033, 0xff506783, 10, this));
+        t.setElevation(dp(3));
         return t;
     }
 
     private TextView emptyText(String text) {
         TextView t = new TextView(this);
         t.setText(text);
-        t.setTextColor(0xff888888);
+        t.setTextColor(AdminUiStyle.MUTED);
         t.setTextSize(12);
-        t.setPadding(0, dp(4), 0, 0);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(12), dp(12), dp(12), dp(12));
+        t.setBackground(AdminUiStyle.panel(0xff1b293b, 0xff111a28, 0xff354a64, 12, this));
         return t;
     }
 
