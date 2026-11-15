@@ -20,7 +20,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
-import android.util.LruCache;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
@@ -31,6 +30,10 @@ import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import com.google.android.gms.auth.api.signin.GoogleSignIn;
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
+import com.google.firebase.auth.FirebaseAuth;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -57,8 +60,8 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
     private static final String CUSTOM_PRESETS_PREFS = "custom_audio_presets";
     private static final String FAVORITE_BANKS_PREFS = "favorite_instrument_banks";
     private static final String INSTRUMENT_ASSET_DIRECTORY = "instruments";
-    private static final int MAX_DECODED_SAMPLE_CACHE_KB = 32 * 1024;
-    private static final int MIN_DECODED_SAMPLE_CACHE_KB = 8 * 1024;
+    private static final long MAX_NATIVE_SAMPLE_CACHE_BYTES = 128L * 1024 * 1024;
+    private static final long MIN_NATIVE_SAMPLE_CACHE_BYTES = 32L * 1024 * 1024;
 
     static {
         System.loadLibrary("piano_audio_engine");
@@ -93,12 +96,14 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
     private final List<Button> favoriteBankButtons = new ArrayList<>();
     private final ExecutorService sampleDecoder = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private LruCache<String, DecodedAudio> decodedSampleCache;
 
     private native boolean nativeCreate();
     private native void nativeDestroy();
     private native boolean nativeLoadSoundFont(String path);
-    private native boolean nativeSetSample(float[] pcm, int sampleRate, int channels);
+    private native boolean nativeSetSampleCacheLimit(long bytes);
+    private native boolean nativeCacheSample(String key, short[] pcm, int sampleRate, int channels);
+    private native boolean nativeSelectCachedSample(String key);
+    private native boolean nativeHasCachedSample(String key);
     private native boolean nativeSelectPreset(int bank, int preset);
     private native void nativeNoteOn(int channel, int note, int velocity);
     private native void nativeNoteOff(int channel, int note);
@@ -109,7 +114,6 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        initializeDecodedSampleCache();
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
@@ -142,6 +146,13 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
         } else {
             nativeSetMasterVolume(0.8f);
             nativeSetEqualizer(0f, 0f, 0f);
+            ActivityManager activityManager =
+                    (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            long memoryBudget = (long) activityManager.getMemoryClass()
+                    * 1024 * 1024 / 2;
+            long cacheBudget = Math.max(MIN_NATIVE_SAMPLE_CACHE_BYTES,
+                    Math.min(MAX_NATIVE_SAMPLE_CACHE_BYTES, memoryBudget));
+            nativeSetSampleCacheLimit(cacheBudget);
             loadBundledInstrumentPresets();
         }
     }
@@ -175,21 +186,34 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
                 presetSpinner.performClick();
             }
         });
+        findViewById(R.id.btnSignOut).setOnClickListener(v ->
+                new AlertDialog.Builder(this)
+                        .setTitle("Sign out?")
+                        .setMessage("You will need to sign in again to use Piano.")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Sign out", (dialog, which) -> signOut())
+                        .show());
     }
 
-    private void initializeDecodedSampleCache() {
-        ActivityManager activityManager =
-                (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
-        int memoryClassKb = activityManager.getMemoryClass() * 1024;
-        int cacheSizeKb = Math.max(MIN_DECODED_SAMPLE_CACHE_KB,
-                Math.min(MAX_DECODED_SAMPLE_CACHE_KB, memoryClassKb / 8));
-        decodedSampleCache = new LruCache<String, DecodedAudio>(cacheSizeKb) {
-            @Override
-            protected int sizeOf(String key, DecodedAudio audio) {
-                long sizeKb = (long) audio.pcm.length * Float.BYTES / 1024L;
-                return (int) Math.max(1L, Math.min(Integer.MAX_VALUE, sizeKb));
+    private void signOut() {
+        new OfflineAccessStore(this).clear();
+        FirebaseAuth.getInstance().signOut();
+        GoogleSignInOptions options = new GoogleSignInOptions.Builder(
+                GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestIdToken(getString(R.string.default_web_client_id))
+                .requestEmail()
+                .build();
+        GoogleSignIn.getClient(this, options).signOut().addOnCompleteListener(this, task -> {
+            if (!task.isSuccessful()) {
+                Log.e("Piano", "Google sign-out did not complete", task.getException());
+                Toast.makeText(this, "Piano signed out; Google account sign-out may be incomplete",
+                        Toast.LENGTH_LONG).show();
             }
-        };
+            Intent login = new Intent(this, LoginActivity.class);
+            login.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(login);
+            finish();
+        });
     }
 
     private void movePreset(int direction) {
@@ -578,8 +602,14 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
                         status.setText("Could not select that SoundFont preset");
                     }
                 } else {
-                    status.setText("Loading " + option.label + "...");
-                    sampleDecoder.execute(() -> loadInstrumentPreset(option, generation));
+                    if (nativeSelectCachedSample(option.key)) {
+                        presetReady = true;
+                        activeInstrument.setText(option.label);
+                        status.setText(option.label + " • ready");
+                    } else {
+                        status.setText("Preparing " + option.label + "...");
+                        sampleDecoder.execute(() -> loadInstrumentPreset(option, generation));
+                    }
                 }
             }
 
@@ -822,9 +852,14 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
         if (isFinishing() || isDestroyed() || index >= options.size()) return;
         PresetOption option = options.get(index);
         sampleDecoder.execute(() -> {
-            if (decodedSampleCache.get(option.key) == null) {
+            if (!nativeHasCachedSample(option.key)) {
                 try {
-                    decodedSampleCache.put(option.key, decodeInstrumentPreset(option));
+                    DecodedAudio audio = decodeInstrumentPreset(option);
+                    if (!nativeCacheSample(option.key, audio.pcm,
+                            audio.sampleRate, audio.channels)) {
+                        Log.w("Piano", "Instrument exceeds the native sample cache: "
+                                + option.label);
+                    }
                 } catch (IOException | IllegalStateException error) {
                     Log.w("Piano", "Could not preload instrument " + option.label, error);
                 }
@@ -835,14 +870,13 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
 
     private void loadInstrumentPreset(PresetOption option, int generation) {
         try {
-            DecodedAudio audio = decodedSampleCache.get(option.key);
-            if (audio == null) {
-                audio = decodeInstrumentPreset(option);
-                decodedSampleCache.put(option.key, audio);
+            boolean loaded = nativeSelectCachedSample(option.key);
+            if (!loaded) {
+                DecodedAudio audio = decodeInstrumentPreset(option);
+                boolean cached = nativeCacheSample(option.key, audio.pcm,
+                        audio.sampleRate, audio.channels);
+                loaded = cached && nativeSelectCachedSample(option.key);
             }
-            DecodedAudio decodedAudio = audio;
-            boolean loaded = engineReady && nativeSetSample(decodedAudio.pcm,
-                    decodedAudio.sampleRate, decodedAudio.channels);
             runOnUiThread(() -> {
                 if (isFinishing() || generation != presetLoadGeneration) return;
                 if (loaded) {
@@ -976,11 +1010,11 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
                 }
             }
         }
-        return new DecodedAudio(toFloatSamples(decoded.toByteArray(), pcmEncoding),
+        return new DecodedAudio(toPcmSamples(decoded.toByteArray(), pcmEncoding),
                 sampleRate, channels);
     }
 
-    private float[] toFloatSamples(byte[] bytes, int encoding) throws IOException {
+    private short[] toPcmSamples(byte[] bytes, int encoding) throws IOException {
         int bytesPerSample;
         if (encoding == AudioFormat.ENCODING_PCM_FLOAT) bytesPerSample = 4;
         else if (encoding == AudioFormat.ENCODING_PCM_8BIT) bytesPerSample = 1;
@@ -988,15 +1022,17 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
         else throw new IOException("Unsupported decoded PCM format: " + encoding);
 
         int sampleCount = bytes.length / bytesPerSample;
-        float[] samples = new float[sampleCount];
+        short[] samples = new short[sampleCount];
         ByteBuffer buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
         for (int i = 0; i < sampleCount; i++) {
             if (encoding == AudioFormat.ENCODING_PCM_FLOAT) {
-                samples[i] = buffer.getFloat();
+                float value = Math.max(-1.0f, Math.min(1.0f, buffer.getFloat()));
+                samples[i] = (short) Math.max(Short.MIN_VALUE,
+                        Math.min(Short.MAX_VALUE, Math.round(value * 32768.0f)));
             } else if (encoding == AudioFormat.ENCODING_PCM_8BIT) {
-                samples[i] = ((buffer.get() & 0xFF) - 128) / 128.0f;
+                samples[i] = (short) ((buffer.get() & 0xFF) - 128 << 8);
             } else {
-                samples[i] = buffer.getShort() / 32768.0f;
+                samples[i] = buffer.getShort();
             }
         }
         return samples;
@@ -1081,11 +1117,11 @@ public final class MainActivity extends Activity implements PianoKeyboardView.No
     }
 
     private static final class DecodedAudio {
-        final float[] pcm;
+        final short[] pcm;
         final int sampleRate;
         final int channels;
 
-        DecodedAudio(float[] pcm, int sampleRate, int channels) {
+        DecodedAudio(short[] pcm, int sampleRate, int channels) {
             this.pcm = pcm;
             this.sampleRate = sampleRate;
             this.channels = channels;

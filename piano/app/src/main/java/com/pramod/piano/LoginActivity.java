@@ -3,6 +3,9 @@ package com.pramod.piano;
 import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -32,8 +35,11 @@ public final class LoginActivity extends Activity {
     private static final int REQUEST_SIGN_IN = 9001;
     private static final String DATABASE_URL =
             "https://pramod-octapad-loop-default-rtdb.asia-southeast1.firebasedatabase.app";
+    private static boolean databasePersistenceConfigured;
 
     private FirebaseAuth auth;
+    private FirebaseDatabase database;
+    private OfflineAccessStore offlineAccessStore;
     private GoogleSignInClient googleSignInClient;
     private DatabaseReference accessRef;
     private ValueEventListener accessListener;
@@ -49,6 +55,12 @@ public final class LoginActivity extends Activity {
         buildUi();
 
         auth = FirebaseAuth.getInstance();
+        database = FirebaseDatabase.getInstance(DATABASE_URL);
+        if (!databasePersistenceConfigured) {
+            database.setPersistenceEnabled(true);
+            databasePersistenceConfigured = true;
+        }
+        offlineAccessStore = new OfflineAccessStore(this);
         GoogleSignInOptions options = new GoogleSignInOptions.Builder(
                 GoogleSignInOptions.DEFAULT_SIGN_IN)
                 .requestIdToken(getString(R.string.default_web_client_id))
@@ -65,6 +77,8 @@ public final class LoginActivity extends Activity {
         FirebaseUser user = auth.getCurrentUser();
         if (user == null) {
             showSignedOut();
+        } else if (!hasInternetConnection() && offlineAccessStore.isAuthorized(user.getUid())) {
+            enterPiano();
         } else {
             observePianoAccess(user);
         }
@@ -177,22 +191,27 @@ public final class LoginActivity extends Activity {
         signInButton.setVisibility(View.GONE);
         signOutButton.setVisibility(View.VISIBLE);
 
-        accessRef = FirebaseDatabase.getInstance(DATABASE_URL)
-                .getReference("authorizedUsers")
+        accessRef = database.getReference("authorizedUsers")
                 .child(user.getUid());
+        accessRef.keepSynced(true);
         accessListener = new ValueEventListener() {
             @Override
             public void onDataChange(DataSnapshot snapshot) {
                 if (snapshot.exists()) {
-                    FirebaseDatabase.getInstance(DATABASE_URL)
+                    database
                             .getReference("pendingRequests")
                             .child(user.getUid())
                             .removeValue();
                     Boolean allowed = snapshot.child("allowedApps")
                             .child("piano").getValue(Boolean.class);
                     if (Boolean.TRUE.equals(allowed)) {
+                        if (!offlineAccessStore.saveAuthorizedUid(user.getUid())) {
+                            android.util.Log.e("LoginActivity",
+                                    "Authorized session could not be cached for offline use");
+                        }
                         enterPiano();
                     } else {
+                        offlineAccessStore.clear();
                         status.setText("Piano access is not enabled for this account. "
                                 + "Please ask the admin to grant Piano access.");
                         signInButton.setEnabled(false);
@@ -210,7 +229,11 @@ public final class LoginActivity extends Activity {
 
             @Override
             public void onCancelled(DatabaseError error) {
-                showError("Could not verify Piano access: " + error.getMessage());
+                if (!hasInternetConnection() && offlineAccessStore.isAuthorized(user.getUid())) {
+                    enterPiano();
+                } else {
+                    showError("Could not verify Piano access: " + error.getMessage());
+                }
             }
         };
         accessRef.addValueEventListener(accessListener);
@@ -222,7 +245,7 @@ public final class LoginActivity extends Activity {
         request.put("displayName", user.getDisplayName() == null ? "" : user.getDisplayName());
         request.put("timestamp", System.currentTimeMillis());
         request.put("requestedApp", "piano");
-        FirebaseDatabase.getInstance(DATABASE_URL)
+        database
                 .getReference("pendingRequests")
                 .child(user.getUid())
                 .setValue(request)
@@ -241,6 +264,7 @@ public final class LoginActivity extends Activity {
 
     private void signOut() {
         clearAccessListener();
+        offlineAccessStore.clear();
         auth.signOut();
         googleSignInClient.signOut().addOnCompleteListener(this, task -> {
             if (!task.isSuccessful()) {
@@ -277,6 +301,18 @@ public final class LoginActivity extends Activity {
         }
         accessListener = null;
         accessRef = null;
+    }
+
+    private boolean hasInternetConnection() {
+        ConnectivityManager manager =
+                (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        if (manager == null) return false;
+        Network network = manager.getActiveNetwork();
+        if (network == null) return false;
+        NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
+        return capabilities != null
+                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
     }
 
     private LinearLayout.LayoutParams matchWidth(int height) {

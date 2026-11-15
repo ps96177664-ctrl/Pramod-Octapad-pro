@@ -7,9 +7,11 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -17,7 +19,14 @@ namespace {
 
 class PianoEngine final : public oboe::AudioStreamDataCallback {
 public:
+    struct SampleData {
+        std::vector<int16_t> pcm;
+        int sampleRate = 0;
+        int channels = 0;
+    };
+
     struct SampleVoice {
+        std::shared_ptr<const SampleData> sample;
         int note = -1;
         int channel = 0;
         double position = 0.0;
@@ -96,7 +105,7 @@ public:
         if (id < 0) return false;
         soundFonts_.push_back(id);
         const bool selected = fluid_synth_program_select(synth_, 0, id, 0, 0) == FLUID_OK;
-        if (selected) sampleMode_ = false;
+        if (selected) std::atomic_store(&activeSample_, std::shared_ptr<const SampleData>{});
         return selected;
     }
 
@@ -105,33 +114,77 @@ public:
         if (!synth_ || soundFonts_.empty()) return false;
         const bool selected = fluid_synth_program_select(
                 synth_, 0, soundFonts_.back(), bank, preset) == FLUID_OK;
-        if (selected) sampleMode_ = false;
+        if (selected) std::atomic_store(&activeSample_, std::shared_ptr<const SampleData>{});
         return selected;
     }
 
-    bool setSample(std::vector<float>&& pcm, int sampleRate, int channels) {
+    void setSampleCacheLimit(size_t bytes) {
+        std::lock_guard<std::mutex> lock(sampleCacheMutex_);
+        sampleCacheLimitBytes_ = std::max<size_t>(bytes, 1);
+        trimSampleCache();
+    }
+
+    bool cacheSample(const std::string& key, std::vector<int16_t>&& pcm,
+                     int sampleRate, int channels) {
         if (pcm.empty() || sampleRate <= 0 || (channels != 1 && channels != 2)
                 || pcm.size() % static_cast<size_t>(channels) != 0) {
             return false;
         }
-        std::vector<float> previousSample;
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            previousSample.swap(samplePcm_);
-            samplePcm_ = std::move(pcm);
-            sampleRate_ = sampleRate;
-            sampleChannels_ = channels;
-            if (synth_) fluid_synth_all_sounds_off(synth_, 0);
-            for (auto& voice : sampleVoices_) voice = SampleVoice{};
-            sampleMode_ = true;
+        auto sample = std::make_shared<SampleData>();
+        sample->pcm = std::move(pcm);
+        sample->sampleRate = sampleRate;
+        sample->channels = channels;
+        const size_t sampleBytes = sample->pcm.size() * sizeof(int16_t);
+        std::vector<std::shared_ptr<const SampleData>> evictedSamples;
+        std::lock_guard<std::mutex> lock(sampleCacheMutex_);
+        if (sampleBytes > sampleCacheLimitBytes_) return false;
+        auto existing = sampleCache_.find(key);
+        if (existing != sampleCache_.end()) {
+            sampleCacheBytes_ -= existing->second.sample->pcm.size() * sizeof(int16_t);
+            evictedSamples.push_back(existing->second.sample);
+            sampleCacheOrder_.erase(existing->second.position);
+            sampleCache_.erase(existing);
         }
+        while (sampleCacheBytes_ + sampleBytes > sampleCacheLimitBytes_
+                && !sampleCacheOrder_.empty()) {
+            const std::string oldest = sampleCacheOrder_.back();
+            auto cached = sampleCache_.find(oldest);
+            if (cached != sampleCache_.end()) {
+                sampleCacheBytes_ -= cached->second.sample->pcm.size() * sizeof(int16_t);
+                evictedSamples.push_back(cached->second.sample);
+                sampleCache_.erase(cached);
+            }
+            sampleCacheOrder_.pop_back();
+        }
+        sampleCacheOrder_.push_front(key);
+        sampleCache_.emplace(key, CachedSample{std::move(sample), sampleCacheOrder_.begin()});
+        sampleCacheBytes_ += sampleBytes;
         return true;
+    }
+
+    bool selectCachedSample(const std::string& key) {
+        std::shared_ptr<const SampleData> selected;
+        {
+            std::lock_guard<std::mutex> lock(sampleCacheMutex_);
+            auto cached = sampleCache_.find(key);
+            if (cached == sampleCache_.end()) return false;
+            sampleCacheOrder_.splice(sampleCacheOrder_.begin(), sampleCacheOrder_,
+                                     cached->second.position);
+            selected = cached->second.sample;
+        }
+        std::atomic_store(&activeSample_, std::move(selected));
+        return true;
+    }
+
+    bool hasCachedSample(const std::string& key) {
+        std::lock_guard<std::mutex> lock(sampleCacheMutex_);
+        return sampleCache_.find(key) != sampleCache_.end();
     }
 
     void noteOn(int channel, int note, int velocity) {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (sampleMode_) {
-            if (samplePcm_.empty()) return;
+        auto sample = std::atomic_load(&activeSample_);
+        if (sample) {
             auto voice = std::find_if(sampleVoices_.begin(), sampleVoices_.end(),
                                       [](const SampleVoice& item) { return !item.active; });
             if (voice == sampleVoices_.end()) {
@@ -141,6 +194,7 @@ public:
                         });
             }
             *voice = SampleVoice{};
+            voice->sample = std::move(sample);
             voice->note = note;
             voice->channel = std::clamp(channel, 0, static_cast<int>(pitchBend_.size()) - 1);
             voice->gain = std::clamp(velocity / 127.0f, 0.0f, 1.0f) * 0.8f;
@@ -153,13 +207,12 @@ public:
     void noteOff(int channel, int note) {
         std::lock_guard<std::mutex> lock(mutex_);
         channel = std::clamp(channel, 0, static_cast<int>(pitchBend_.size()) - 1);
-        if (sampleMode_) {
-            for (auto& voice : sampleVoices_) {
-                if (voice.active && voice.channel == channel && voice.note == note) {
-                    voice.releasing = true;
-                }
+        for (auto& voice : sampleVoices_) {
+            if (voice.active && voice.channel == channel && voice.note == note) {
+                voice.releasing = true;
             }
-        } else if (synth_) {
+        }
+        if (synth_ && !std::atomic_load(&activeSample_)) {
             fluid_synth_noteoff(synth_, channel, note);
         }
     }
@@ -169,7 +222,9 @@ public:
         channel = std::clamp(channel, 0, static_cast<int>(pitchBend_.size()) - 1);
         value = std::clamp(value, 0, 16383);
         pitchBend_[static_cast<size_t>(channel)] = value;
-        if (synth_) fluid_synth_pitch_bend(synth_, channel, value);
+        if (synth_ && !std::atomic_load(&activeSample_)) {
+            fluid_synth_pitch_bend(synth_, channel, value);
+        }
     }
 
     void setMasterVolume(float volume) {
@@ -189,8 +244,9 @@ public:
             oboe::AudioStream* stream, void* audioData, int32_t frames) override {
         auto* output = static_cast<float*>(audioData);
         std::lock_guard<std::mutex> lock(mutex_);
+        const auto activeSample = std::atomic_load(&activeSample_);
         const float outputRate = static_cast<float>(stream->getSampleRate());
-        if (!synth_) {
+        if (!synth_ || activeSample) {
             std::fill(output, output + frames * 2, 0.0f);
         } else {
             left_.resize(static_cast<size_t>(frames));
@@ -206,16 +262,18 @@ public:
             }
         }
 
-        if (sampleMode_ && !samplePcm_.empty()) {
+        if (activeSample || std::any_of(sampleVoices_.begin(), sampleVoices_.end(),
+                [](const SampleVoice& voice) { return voice.active && voice.sample; })) {
             const double releaseStep = 1.0 / (outputRate * 0.015);
-            const size_t frameCount = samplePcm_.size()
-                    / static_cast<size_t>(sampleChannels_);
             for (auto& voice : sampleVoices_) {
-                if (!voice.active) continue;
+                if (!voice.active || !voice.sample) continue;
+                const auto& sample = *voice.sample;
+                const size_t frameCount = sample.pcm.size()
+                        / static_cast<size_t>(sample.channels);
                 const double bendSemitones =
                         (pitchBend_[static_cast<size_t>(voice.channel)] - 8192)
                         * (2.0 / 8192.0);
-                const double rate = (sampleRate_ / outputRate)
+                const double rate = (sample.sampleRate / outputRate)
                         * std::pow(2.0, (voice.note - 60 + bendSemitones) / 12.0);
                 for (int32_t i = 0; i < frames; ++i) {
                     const size_t sourceFrame = static_cast<size_t>(voice.position);
@@ -225,13 +283,13 @@ public:
                     }
                     const size_t nextFrame = std::min(sourceFrame + 1, frameCount - 1);
                     const float fraction = static_cast<float>(voice.position - sourceFrame);
-                    const size_t first = sourceFrame * static_cast<size_t>(sampleChannels_);
-                    const size_t second = nextFrame * static_cast<size_t>(sampleChannels_);
-                    const float sampleLeft = samplePcm_[first] * (1.0f - fraction)
-                            + samplePcm_[second] * fraction;
-                    const float sampleRight = sampleChannels_ == 1 ? sampleLeft
-                            : samplePcm_[first + 1] * (1.0f - fraction)
-                            + samplePcm_[second + 1] * fraction;
+                    const size_t first = sourceFrame * static_cast<size_t>(sample.channels);
+                    const size_t second = nextFrame * static_cast<size_t>(sample.channels);
+                    const float sampleLeft = (sample.pcm[first] * (1.0f - fraction)
+                            + sample.pcm[second] * fraction) / 32768.0f;
+                    const float sampleRight = sample.channels == 1 ? sampleLeft
+                            : (sample.pcm[first + 1] * (1.0f - fraction)
+                            + sample.pcm[second + 1] * fraction) / 32768.0f;
                     const float envelope = voice.gain * voice.release;
                     output[i * 2] += sampleLeft * envelope;
                     output[i * 2 + 1] += sampleRight * envelope;
@@ -276,15 +334,37 @@ public:
     }
 
 private:
+    struct CachedSample {
+        std::shared_ptr<const SampleData> sample;
+        std::list<std::string>::iterator position;
+    };
+
+    void trimSampleCache() {
+        while (sampleCacheBytes_ > sampleCacheLimitBytes_ && !sampleCacheOrder_.empty()) {
+            const std::string oldest = sampleCacheOrder_.back();
+            auto cached = sampleCache_.find(oldest);
+            if (cached != sampleCache_.end()) {
+                sampleCacheBytes_ -= cached->second.sample->pcm.size() * sizeof(int16_t);
+                sampleCache_.erase(cached);
+            }
+            sampleCacheOrder_.pop_back();
+        }
+    }
+
     std::mutex mutex_;
+    std::mutex sampleCacheMutex_;
     fluid_settings_t* settings_ = nullptr;
     fluid_synth_t* synth_ = nullptr;
     std::shared_ptr<oboe::AudioStream> stream_;
     std::vector<int> soundFonts_;
     std::vector<float> left_;
     std::vector<float> right_;
-    std::vector<float> samplePcm_;
     std::array<SampleVoice, 64> sampleVoices_{};
+    std::shared_ptr<const SampleData> activeSample_;
+    std::unordered_map<std::string, CachedSample> sampleCache_;
+    std::list<std::string> sampleCacheOrder_;
+    size_t sampleCacheBytes_ = 0;
+    size_t sampleCacheLimitBytes_ = 64 * 1024 * 1024;
     std::array<int, 16> pitchBend_{};
     std::array<float, 2> lowPassState_{};
     std::array<float, 2> highPassState_{};
@@ -292,9 +372,6 @@ private:
     std::array<float, 3> eqGains_{1.0f, 1.0f, 1.0f};
     float targetMasterVolume_ = 0.8f;
     float masterVolume_ = 0.8f;
-    int sampleRate_ = 0;
-    int sampleChannels_ = 0;
-    bool sampleMode_ = false;
 };
 
 std::mutex gEngineMutex;
@@ -334,17 +411,45 @@ Java_com_pramod_piano_MainActivity_nativeLoadSoundFont(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_pramod_piano_MainActivity_nativeSetSample(
-        JNIEnv* env, jobject, jfloatArray pcm, jint sampleRate, jint channels) {
-    if (pcm == nullptr) return JNI_FALSE;
+Java_com_pramod_piano_MainActivity_nativeSetSampleCacheLimit(
+        JNIEnv*, jobject, jlong bytes) {
+    std::lock_guard<std::mutex> lock(gEngineMutex);
+    if (!gEngine || bytes <= 0) return JNI_FALSE;
+    gEngine->setSampleCacheLimit(static_cast<size_t>(bytes));
+    return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_pramod_piano_MainActivity_nativeCacheSample(
+        JNIEnv* env, jobject, jstring key, jshortArray pcm, jint sampleRate, jint channels) {
+    if (key == nullptr || pcm == nullptr) return JNI_FALSE;
+    const std::string cacheKey = toString(env, key);
     const jsize length = env->GetArrayLength(pcm);
     if (length <= 0) return JNI_FALSE;
-    std::vector<float> samples(static_cast<size_t>(length));
-    env->GetFloatArrayRegion(pcm, 0, length, samples.data());
+    std::vector<int16_t> samples(static_cast<size_t>(length));
+    env->GetShortArrayRegion(pcm, 0, length, reinterpret_cast<jshort*>(samples.data()));
     if (env->ExceptionCheck()) return JNI_FALSE;
     std::lock_guard<std::mutex> lock(gEngineMutex);
-    return gEngine && gEngine->setSample(std::move(samples), sampleRate, channels)
+    return gEngine && gEngine->cacheSample(cacheKey, std::move(samples), sampleRate, channels)
             ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_pramod_piano_MainActivity_nativeSelectCachedSample(
+        JNIEnv* env, jobject, jstring key) {
+    if (key == nullptr) return JNI_FALSE;
+    const std::string cacheKey = toString(env, key);
+    std::lock_guard<std::mutex> lock(gEngineMutex);
+    return gEngine && gEngine->selectCachedSample(cacheKey) ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_pramod_piano_MainActivity_nativeHasCachedSample(
+        JNIEnv* env, jobject, jstring key) {
+    if (key == nullptr) return JNI_FALSE;
+    const std::string cacheKey = toString(env, key);
+    std::lock_guard<std::mutex> lock(gEngineMutex);
+    return gEngine && gEngine->hasCachedSample(cacheKey) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL

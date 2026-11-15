@@ -108,6 +108,14 @@
                 android:minWidth="60dp"
                 android:text="LOAD SF2"
                 android:textSize="9sp" />
+
+            <Button
+                android:id="@+id/btnSignOut"
+                android:layout_width="48dp"
+                android:layout_height="38dp"
+                android:contentDescription="Sign out of Piano"
+                android:text="OUT"
+                android:textSize="8sp" />
         </LinearLayout>
 
         <LinearLayout
