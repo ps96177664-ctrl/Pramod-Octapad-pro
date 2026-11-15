@@ -14,8 +14,13 @@ final class WaveformTrimView extends View {
     private float[] samples;
     private float startFraction;
     private float endFraction = 1f;
+    private float zoom = 1f;
+    private float viewportStart;
     private int dragTarget;
+    private float lastTouchX;
     private OnMarkersChanged listener;
+    private static final float MAX_ZOOM = 32f;
+    private static final float MIN_MARKER_GAP = 0.0000001f;
 
     private final Paint backgroundPaint = new Paint();
     private final Paint gridPaint = new Paint();
@@ -57,13 +62,46 @@ final class WaveformTrimView extends View {
     }
 
     void setMarkers(float startFraction, float endFraction) {
-        this.startFraction = Math.max(0f, Math.min(endFraction - 0.005f, startFraction));
-        this.endFraction = Math.min(1f, Math.max(startFraction + 0.005f, endFraction));
+        float start = Math.max(0f, Math.min(1f, startFraction));
+        float end = Math.max(0f, Math.min(1f, endFraction));
+        if (end - start < MIN_MARKER_GAP) {
+            end = Math.min(1f, start + MIN_MARKER_GAP);
+            start = Math.max(0f, end - MIN_MARKER_GAP);
+        }
+        this.startFraction = start;
+        this.endFraction = end;
         invalidate();
     }
 
     void setOnMarkersChanged(OnMarkersChanged listener) {
         this.listener = listener;
+    }
+
+    void zoomIn() {
+        setZoom(Math.min(MAX_ZOOM, zoom * 2f));
+    }
+
+    void zoomOut() {
+        setZoom(Math.max(1f, zoom / 2f));
+    }
+
+    void resetZoom() {
+        zoom = 1f;
+        viewportStart = 0f;
+        invalidate();
+    }
+
+    float getZoomFactor() {
+        return zoom;
+    }
+
+    private void setZoom(float newZoom) {
+        if (newZoom == zoom) return;
+        float center = (startFraction + endFraction) * 0.5f;
+        zoom = newZoom;
+        viewportStart = Math.max(0f, Math.min(1f - 1f / zoom,
+                center - 0.5f / zoom));
+        invalidate();
     }
 
     @Override
@@ -73,6 +111,7 @@ final class WaveformTrimView extends View {
         if (width == 0 || height == 0) return;
 
         canvas.drawRect(0, 0, width, height, backgroundPaint);
+        float visibleSpan = 1f / zoom;
         for (int i = 1; i < 4; i++) {
             float x = width * i / 4f;
             canvas.drawLine(x, 0, x, height, gridPaint);
@@ -85,38 +124,50 @@ final class WaveformTrimView extends View {
             return;
         }
 
-        int startX = (int) (startFraction * width);
-        int endX = (int) (endFraction * width);
+        int saveCount = canvas.save();
+        canvas.clipRect(0, 0, width, height);
+        float startX = (startFraction - viewportStart) / visibleSpan * width;
+        float endX = (endFraction - viewportStart) / visibleSpan * width;
         float centerY = height * 0.5f;
         canvas.drawRect(startX, 0, endX, height, regionPaint);
-        for (int i = 0; i < samples.length; i++) {
-            float x = (float) i / samples.length * width;
+        int firstSample = Math.max(0, (int) (viewportStart * samples.length));
+        int lastSample = Math.min(samples.length,
+                (int) Math.ceil((viewportStart + visibleSpan) * samples.length));
+        for (int i = firstSample; i < lastSample; i++) {
+            float fraction = (i + 0.5f) / samples.length;
+            float x = (fraction - viewportStart) / visibleSpan * width;
             float amplitude = samples[i] * height * 0.46f;
             canvas.drawLine(x, centerY - amplitude, x, centerY + amplitude,
-                    x >= startX && x <= endX ? selectedWavePaint : unselectedWavePaint);
+                    fraction >= startFraction && fraction <= endFraction
+                            ? selectedWavePaint : unselectedWavePaint);
         }
 
         canvas.drawLine(startX, 0, startX, height, startPaint);
         canvas.drawLine(endX, 0, endX, height, endPaint);
         handlePaint.setColor(0xFF00FF66);
-        canvas.drawCircle(startX, 22, 22, handlePaint);
+        if (startX >= 0 && startX <= width) canvas.drawCircle(startX, 22, 22, handlePaint);
         textPaint.setColor(0xFF000000);
         textPaint.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText("S", startX, 32, textPaint);
+        if (startX >= 0 && startX <= width) canvas.drawText("S", startX, 32, textPaint);
         handlePaint.setColor(0xFFFF4444);
-        canvas.drawCircle(endX, 22, 22, handlePaint);
+        if (endX >= 0 && endX <= width) canvas.drawCircle(endX, 22, 22, handlePaint);
         textPaint.setColor(0xFFFFFFFF);
-        canvas.drawText("E", endX, 32, textPaint);
+        if (endX >= 0 && endX <= width) canvas.drawText("E", endX, 32, textPaint);
 
         loadingPaint.setTextSize(24f);
         loadingPaint.setTextAlign(Paint.Align.LEFT);
         loadingPaint.setColor(0xFF00FF66);
-        canvas.drawText(String.format(java.util.Locale.US, "%.1f%%",
-                startFraction * 100), startX + 4, height - 6, loadingPaint);
+        if (startX >= 0 && startX <= width) {
+            canvas.drawText(String.format(java.util.Locale.US, "%.1f%%",
+                    startFraction * 100), startX + 4, height - 6, loadingPaint);
+        }
         loadingPaint.setTextAlign(Paint.Align.RIGHT);
         loadingPaint.setColor(0xFFFF4444);
-        canvas.drawText(String.format(java.util.Locale.US, "%.1f%%",
-                endFraction * 100), endX - 4, height - 6, loadingPaint);
+        if (endX >= 0 && endX <= width) {
+            canvas.drawText(String.format(java.util.Locale.US, "%.1f%%",
+                    endFraction * 100), endX - 4, height - 6, loadingPaint);
+        }
+        canvas.restoreToCount(saveCount);
     }
 
     @Override
@@ -124,33 +175,44 @@ final class WaveformTrimView extends View {
         int width = getWidth();
         if (width == 0) return true;
         float x = event.getX();
-        float startX = startFraction * width;
-        float endX = endFraction * width;
+        float visibleSpan = 1f / zoom;
+        float startX = (startFraction - viewportStart) / visibleSpan * width;
+        float endX = (endFraction - viewportStart) / visibleSpan * width;
         float slop = Math.max(44f, width * 0.04f);
 
         switch (event.getAction()) {
             case MotionEvent.ACTION_DOWN:
                 float startDistance = Math.abs(x - startX);
                 float endDistance = Math.abs(x - endX);
-                if (startDistance < slop && endDistance < slop) {
+                boolean startVisible = startX >= 0 && startX <= width;
+                boolean endVisible = endX >= 0 && endX <= width;
+                if (startVisible && startDistance < slop && endVisible && endDistance < slop) {
                     dragTarget = startDistance <= endDistance ? 1 : 2;
-                } else if (startDistance < slop) {
+                } else if (startVisible && startDistance < slop) {
                     dragTarget = 1;
-                } else if (endDistance < slop) {
+                } else if (endVisible && endDistance < slop) {
                     dragTarget = 2;
                 } else {
-                    dragTarget = 0;
+                    dragTarget = 3;
                 }
+                lastTouchX = x;
                 break;
             case MotionEvent.ACTION_MOVE:
                 if (dragTarget == 1) {
+                    float fraction = viewportStart + x / width * visibleSpan;
                     startFraction = Math.max(0f,
-                            Math.min(endFraction - 0.005f, x / width));
+                            Math.min(endFraction - MIN_MARKER_GAP, fraction));
                     notifyMarkersChanged();
                 } else if (dragTarget == 2) {
+                    float fraction = viewportStart + x / width * visibleSpan;
                     endFraction = Math.min(1f,
-                            Math.max(startFraction + 0.005f, x / width));
+                            Math.max(startFraction + MIN_MARKER_GAP, fraction));
                     notifyMarkersChanged();
+                } else if (dragTarget == 3) {
+                    viewportStart = Math.max(0f, Math.min(1f - visibleSpan,
+                            viewportStart - (x - lastTouchX) / width * visibleSpan));
+                    lastTouchX = x;
+                    invalidate();
                 }
                 break;
             case MotionEvent.ACTION_UP:

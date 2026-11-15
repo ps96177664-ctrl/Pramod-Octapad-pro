@@ -6637,6 +6637,46 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
         waveformView.setLayoutParams(wvLP);
         root.addView(waveformView);
 
+        android.widget.LinearLayout zoomRow = new android.widget.LinearLayout(this);
+        zoomRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        int zoomButtonMargin = Math.round(6
+                * getResources().getDisplayMetrics().density);
+        android.widget.Button zoomOut = new android.widget.Button(this);
+        zoomOut.setText("−");
+        android.widget.Button zoomIn = new android.widget.Button(this);
+        zoomIn.setText("+");
+        android.widget.Button resetZoom = new android.widget.Button(this);
+        resetZoom.setText("Reset");
+        android.widget.TextView zoomLabel = new android.widget.TextView(this);
+        zoomLabel.setText("Zoom: 1x");
+        zoomLabel.setGravity(android.view.Gravity.CENTER);
+        zoomRow.addView(zoomOut, new android.widget.LinearLayout.LayoutParams(0, -2, 1f));
+        zoomRow.addView(zoomLabel, new android.widget.LinearLayout.LayoutParams(0, -2, 2f));
+        zoomRow.addView(zoomIn, new android.widget.LinearLayout.LayoutParams(0, -2, 1f));
+        zoomRow.addView(resetZoom, new android.widget.LinearLayout.LayoutParams(0, -2, 1.5f));
+        android.widget.LinearLayout.LayoutParams zoomRowParams =
+                new android.widget.LinearLayout.LayoutParams(-1, -2);
+        zoomRowParams.bottomMargin = zoomButtonMargin;
+        root.addView(zoomRow, zoomRowParams);
+        java.lang.Runnable updateZoomLabel = () -> zoomLabel.setText(String.format(
+                java.util.Locale.US, "Zoom: %.0fx", waveformView.getZoomFactor()));
+        zoomOut.setOnClickListener(v -> {
+            waveformView.zoomOut();
+            updateZoomLabel.run();
+        });
+        zoomIn.setOnClickListener(v -> {
+            waveformView.zoomIn();
+            updateZoomLabel.run();
+        });
+        resetZoom.setOnClickListener(v -> {
+            waveformView.resetZoom();
+            updateZoomLabel.run();
+        });
+        android.widget.TextView panHint = new android.widget.TextView(this);
+        panHint.setText("Waveform ke khali area ko drag karke pan karein.");
+        panHint.setTextSize(12f);
+        root.addView(panHint);
+
         // ── Time input row ────────────────────────────────────────────────────
         android.widget.LinearLayout timeRow = new android.widget.LinearLayout(this);
         timeRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);

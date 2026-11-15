@@ -11,6 +11,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.ActivityNotFoundException;
 import android.content.SharedPreferences;
 import android.media.AudioDeviceCallback;
 import android.media.AudioDeviceInfo;
@@ -67,6 +68,7 @@ public class MainActivity extends Activity {
     private static final int REQ_LIST_FOLDER = 2003;
     private static final int REQ_LOAD_FOLDER = 2002;
     private static final int REQ_PICK_SINGLE_WAV = 5001;
+    private static final int REQ_SAVE_TRIMMED_WAV = 5002;
     private static final int REQ_SAVE_FOLDER = 2001;
     private static final String TAG = "MainActivity";
 
@@ -139,6 +141,8 @@ public class MainActivity extends Activity {
     private final Object              trimPreviewLock       = new Object();
     private AudioTrack                trimPreviewTrack;
     private Thread                    trimPreviewThread;
+    private short[] pendingTrimExportPcm;
+    private int pendingTrimExportSampleRate;
 
     // ── MIDI Kit Lock — SPD-20 Pro kit filter ─────────────────────────────────
     // midiKitLockNumber: SPD-20 Pro kit no. jis pe app ka sound bajega (-1 = off)
@@ -3311,12 +3315,14 @@ public class MainActivity extends Activity {
     }
 
     private void copyTrimRange(boolean bankB, int kitNo, int fromPad, int toPad) {
-        prefs.edit()
+        SharedPreferences.Editor editor = prefs.edit()
                 .putInt(trimStartKey(bankB, kitNo, toPad),
                         prefs.getInt(trimStartKey(bankB, kitNo, fromPad), 0))
                 .putInt(trimEndKey(bankB, kitNo, toPad),
-                        prefs.getInt(trimEndKey(bankB, kitNo, fromPad), 1000))
-                .apply();
+                        prefs.getInt(trimEndKey(bankB, kitNo, fromPad), 1000));
+        copyFineTrimValue(editor, bankB, kitNo, fromPad, toPad, true);
+        copyFineTrimValue(editor, bankB, kitNo, fromPad, toPad, false);
+        editor.apply();
     }
 
     private void swapTrimRanges(boolean bankB, int kitNo, int padA, int padB) {
@@ -3324,18 +3330,22 @@ public class MainActivity extends Activity {
         int endA = prefs.getInt(trimEndKey(bankB, kitNo, padA), 1000);
         int startB = prefs.getInt(trimStartKey(bankB, kitNo, padB), 0);
         int endB = prefs.getInt(trimEndKey(bankB, kitNo, padB), 1000);
-        prefs.edit()
+        SharedPreferences.Editor editor = prefs.edit()
                 .putInt(trimStartKey(bankB, kitNo, padA), startB)
                 .putInt(trimEndKey(bankB, kitNo, padA), endB)
                 .putInt(trimStartKey(bankB, kitNo, padB), startA)
-                .putInt(trimEndKey(bankB, kitNo, padB), endA)
-                .apply();
+                .putInt(trimEndKey(bankB, kitNo, padB), endA);
+        swapFineTrimValue(editor, bankB, kitNo, padA, padB, true);
+        swapFineTrimValue(editor, bankB, kitNo, padA, padB, false);
+        editor.apply();
     }
 
     private void clearTrimRange(boolean bankB, int kitNo, int padIndex) {
         prefs.edit()
                 .remove(trimStartKey(bankB, kitNo, padIndex))
                 .remove(trimEndKey(bankB, kitNo, padIndex))
+                .remove(trimStartFineKey(bankB, kitNo, padIndex))
+                .remove(trimEndFineKey(bankB, kitNo, padIndex))
                 .apply();
     }
 
@@ -3350,9 +3360,7 @@ public class MainActivity extends Activity {
                 Log.e(TAG, "Could not reload copied pad audio for trim");
                 return;
             }
-            short[] trimmed = trimPcm(pcm,
-                    prefs.getInt(trimStartKey(bankB, kitNo, padIndex), 0),
-                    prefs.getInt(trimEndKey(bankB, kitNo, padIndex), 1000));
+            short[] trimmed = trimPcmForPad(pcm, bankB, kitNo, padIndex);
             int slot = bankB ? padIndex + 8 : padIndex;
             if (!audioEngine.uploadPcm(slot, trimmed)) {
                 Log.e(TAG, "Could not apply copied pad trim to audio slot " + slot);
@@ -3370,11 +3378,73 @@ public class MainActivity extends Activity {
         return "kit_" + kitNo + (bankB ? "_B" : "") + "_trim_end_" + padIndex;
     }
 
+    private static String trimStartFineKey(boolean bankB, int kitNo, int padIndex) {
+        return trimStartKey(bankB, kitNo, padIndex) + "_fine";
+    }
+
+    private static String trimEndFineKey(boolean bankB, int kitNo, int padIndex) {
+        return trimEndKey(bankB, kitNo, padIndex) + "_fine";
+    }
+
+    private void copyFineTrimValue(SharedPreferences.Editor editor, boolean bankB, int kitNo,
+                                   int fromPad, int toPad, boolean start) {
+        String fromKey = start ? trimStartFineKey(bankB, kitNo, fromPad)
+                : trimEndFineKey(bankB, kitNo, fromPad);
+        String toKey = start ? trimStartFineKey(bankB, kitNo, toPad)
+                : trimEndFineKey(bankB, kitNo, toPad);
+        if (prefs.contains(fromKey)) {
+            editor.putInt(toKey, prefs.getInt(fromKey, start ? 0 : 1_000_000));
+        } else {
+            editor.remove(toKey);
+        }
+    }
+
+    private void swapFineTrimValue(SharedPreferences.Editor editor, boolean bankB, int kitNo,
+                                   int padA, int padB, boolean start) {
+        String keyA = start ? trimStartFineKey(bankB, kitNo, padA)
+                : trimEndFineKey(bankB, kitNo, padA);
+        String keyB = start ? trimStartFineKey(bankB, kitNo, padB)
+                : trimEndFineKey(bankB, kitNo, padB);
+        boolean hasA = prefs.contains(keyA);
+        boolean hasB = prefs.contains(keyB);
+        int valueA = prefs.getInt(keyA, start ? 0 : 1_000_000);
+        int valueB = prefs.getInt(keyB, start ? 0 : 1_000_000);
+        if (hasB) editor.putInt(keyA, valueB); else editor.remove(keyA);
+        if (hasA) editor.putInt(keyB, valueA); else editor.remove(keyB);
+    }
+
+    private int getTrimStartUnits(boolean bankB, int kitNo, int padIndex) {
+        String fineKey = trimStartFineKey(bankB, kitNo, padIndex);
+        return prefs.contains(fineKey) ? prefs.getInt(fineKey, 0)
+                : prefs.getInt(trimStartKey(bankB, kitNo, padIndex), 0) * 1000;
+    }
+
+    private int getTrimEndUnits(boolean bankB, int kitNo, int padIndex) {
+        String fineKey = trimEndFineKey(bankB, kitNo, padIndex);
+        return prefs.contains(fineKey) ? prefs.getInt(fineKey, 1_000_000)
+                : prefs.getInt(trimEndKey(bankB, kitNo, padIndex), 1000) * 1000;
+    }
+
+    private short[] trimPcmForPad(short[] pcm, boolean bankB, int kitNo, int padIndex) {
+        String startFineKey = trimStartFineKey(bankB, kitNo, padIndex);
+        String endFineKey = trimEndFineKey(bankB, kitNo, padIndex);
+        if (prefs.contains(startFineKey) && prefs.contains(endFineKey)) {
+            return trimPcm(pcm, prefs.getInt(startFineKey, 0),
+                    prefs.getInt(endFineKey, 1_000_000), 1_000_000);
+        }
+        return trimPcm(pcm, prefs.getInt(trimStartKey(bankB, kitNo, padIndex), 0),
+                prefs.getInt(trimEndKey(bankB, kitNo, padIndex), 1000));
+    }
+
     private static short[] trimPcm(short[] pcm, int startPermille, int endPermille) {
+        return trimPcm(pcm, startPermille, endPermille, 1000);
+    }
+
+    private static short[] trimPcm(short[] pcm, int start, int end, int scale) {
         if (pcm == null || pcm.length < 2) return pcm;
         int frames = pcm.length / 2;
-        int startFrame = (int) ((long) frames * Math.max(0, Math.min(999, startPermille)) / 1000);
-        int endFrame = (int) ((long) frames * Math.max(1, Math.min(1000, endPermille)) / 1000);
+        int startFrame = (int) ((long) frames * Math.max(0, Math.min(scale - 1, start)) / scale);
+        int endFrame = (int) ((long) frames * Math.max(1, Math.min(scale, end)) / scale);
         startFrame = Math.min(startFrame, frames - 1);
         endFrame = Math.max(startFrame + 1, Math.min(frames, endFrame));
         if (startFrame == 0 && endFrame == frames) return pcm;
@@ -3409,7 +3479,7 @@ public class MainActivity extends Activity {
                     return;
                 }
                 showAudioTrimDialog(uri, 0, pcm, padIndex, bankB, kitNo, slot,
-                        0, 1000, true, "Trim before loading PAD " + (padIndex + 1),
+                        0, 1_000_000, true, "Trim before loading PAD " + (padIndex + 1),
                         waveform);
             });
         });
@@ -3489,8 +3559,8 @@ public class MainActivity extends Activity {
                     return;
                 }
                 showAudioTrimDialog(uri, rawId, decodedPcm, padIndex, bankB, kitNo, slot,
-                        prefs.getInt(trimStartKey(bankB, kitNo, padIndex), 0),
-                        prefs.getInt(trimEndKey(bankB, kitNo, padIndex), 1000),
+                        getTrimStartUnits(bankB, kitNo, padIndex),
+                        getTrimEndUnits(bankB, kitNo, padIndex),
                         false, "Trim loaded PAD " + (padIndex + 1), waveform);
             });
         });
@@ -3511,10 +3581,10 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "Audio duration is invalid", Toast.LENGTH_LONG).show();
             return;
         }
-        int start = Math.max(0, Math.min(999, initialStart));
-        int end = Math.max(start + 1, Math.min(1000, initialEnd));
-        final double[] range = {durationSeconds * start / 1000.0,
-                durationSeconds * end / 1000.0};
+        int start = Math.max(0, Math.min(999_999, initialStart));
+        int end = Math.max(start + 1, Math.min(1_000_000, initialEnd));
+        final double[] range = {durationSeconds * start / 1_000_000.0,
+                durationSeconds * end / 1_000_000.0};
 
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         android.widget.LinearLayout content = new android.widget.LinearLayout(this);
@@ -3536,6 +3606,42 @@ public class MainActivity extends Activity {
                 new android.widget.LinearLayout.LayoutParams(-1, waveformHeight);
         waveformParams.bottomMargin = dp(12);
         content.addView(waveform, waveformParams);
+
+        android.widget.LinearLayout zoomRow = new android.widget.LinearLayout(this);
+        zoomRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        Button zoomOutButton = new Button(this);
+        zoomOutButton.setText("−");
+        Button zoomInButton = new Button(this);
+        zoomInButton.setText("+");
+        Button resetZoomButton = new Button(this);
+        resetZoomButton.setText("Reset");
+        TextView zoomLabel = new TextView(this);
+        zoomLabel.setText("Zoom: 1x");
+        zoomLabel.setGravity(android.view.Gravity.CENTER);
+        zoomRow.addView(zoomOutButton, new android.widget.LinearLayout.LayoutParams(0, -2, 1f));
+        zoomRow.addView(zoomLabel, new android.widget.LinearLayout.LayoutParams(0, -2, 2f));
+        zoomRow.addView(zoomInButton, new android.widget.LinearLayout.LayoutParams(0, -2, 1f));
+        zoomRow.addView(resetZoomButton,
+                new android.widget.LinearLayout.LayoutParams(0, -2, 1.5f));
+        content.addView(zoomRow);
+        Runnable updateZoomLabel = () -> zoomLabel.setText(String.format(
+                java.util.Locale.US, "Zoom: %.0fx", waveform.getZoomFactor()));
+        zoomOutButton.setOnClickListener(v -> {
+            waveform.zoomOut();
+            updateZoomLabel.run();
+        });
+        zoomInButton.setOnClickListener(v -> {
+            waveform.zoomIn();
+            updateZoomLabel.run();
+        });
+        resetZoomButton.setOnClickListener(v -> {
+            waveform.resetZoom();
+            updateZoomLabel.run();
+        });
+        TextView panHint = new TextView(this);
+        panHint.setText("Drag the empty waveform area to move while zoomed.");
+        panHint.setTextSize(12);
+        content.addView(panHint);
 
         android.widget.LinearLayout timeRow = new android.widget.LinearLayout(this);
         timeRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -3560,15 +3666,15 @@ public class MainActivity extends Activity {
 
         final boolean[] changingFromWaveform = {false};
         Runnable updateRangeText = () -> rangeLabel.setText(String.format(
-                java.util.Locale.US, "Selected: %.2fs → %.2fs  (%.2fs)",
+                java.util.Locale.US, "Selected: %.6fs → %.6fs  (%.6fs)",
                 range[0], range[1], range[1] - range[0]));
         updateRangeText.run();
         waveform.setOnMarkersChanged((startFraction, endFraction) -> {
             changingFromWaveform[0] = true;
             range[0] = durationSeconds * startFraction;
             range[1] = durationSeconds * endFraction;
-            startInput.setText(String.format(java.util.Locale.US, "%.2f", range[0]));
-            endInput.setText(String.format(java.util.Locale.US, "%.2f", range[1]));
+            startInput.setText(String.format(java.util.Locale.US, "%.6f", range[0]));
+            endInput.setText(String.format(java.util.Locale.US, "%.6f", range[1]));
             updateRangeText.run();
             changingFromWaveform[0] = false;
         });
@@ -3603,6 +3709,27 @@ public class MainActivity extends Activity {
         previewRow.addView(stopButton, new android.widget.LinearLayout.LayoutParams(0, -2, 1f));
         content.addView(previewRow);
 
+        Button saveTrimmedButton = new Button(this);
+        saveTrimmedButton.setText("Save Trimmed WAV");
+        content.addView(saveTrimmedButton,
+                new android.widget.LinearLayout.LayoutParams(-1, -2));
+        saveTrimmedButton.setOnClickListener(v -> {
+            try {
+                double startSeconds = Double.parseDouble(startInput.getText().toString().trim());
+                double endSeconds = Double.parseDouble(endInput.getText().toString().trim());
+                if (startSeconds < 0 || endSeconds > durationSeconds
+                        || endSeconds <= startSeconds) {
+                    throw new NumberFormatException("Invalid range");
+                }
+                short[] exportPcm = trimPcmByTime(sourcePcm, startSeconds, endSeconds,
+                        engine.getSampleRate());
+                startTrimmedWavExport(exportPcm, engine.getSampleRate(), padIndex);
+            } catch (NumberFormatException error) {
+                status.setText("Enter a valid range with End after Start.");
+                status.setTextColor(0xFFFF4444);
+            }
+        });
+
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(title)
                 .setView(scroll)
@@ -3610,37 +3737,59 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Cancel", null)
                 .create();
         previewButton.setOnClickListener(v -> {
-            int startPermille = (int) Math.round(range[0] / durationSeconds * 1000);
-            int endPermille = (int) Math.round(range[1] / durationSeconds * 1000);
-            playAudioTrimPreview(sourcePcm, startPermille, endPermille, status);
+            try {
+                double startSeconds = Double.parseDouble(startInput.getText().toString().trim());
+                double endSeconds = Double.parseDouble(endInput.getText().toString().trim());
+                if (startSeconds < 0 || endSeconds > durationSeconds
+                        || endSeconds <= startSeconds) {
+                    throw new NumberFormatException("Invalid range");
+                }
+                playAudioTrimPreview(sourcePcm, startSeconds, endSeconds, status);
+            } catch (NumberFormatException error) {
+                status.setText("Enter a valid range with End after Start.");
+                status.setTextColor(0xFFFF4444);
+            }
         });
         stopButton.setOnClickListener(v -> stopAudioTrimPreview());
         dialog.setOnDismissListener(ignored -> stopAudioTrimPreview());
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
                 .setOnClickListener(v -> {
+                    final int startUnits;
+                    final int endUnits;
                     final int startPermille;
                     final int endPermille;
+                    final double startSeconds;
+                    final double endSeconds;
                     try {
-                        double startSeconds = Double.parseDouble(
+                        startSeconds = Double.parseDouble(
                                 startInput.getText().toString().trim());
-                        double endSeconds = Double.parseDouble(
+                        endSeconds = Double.parseDouble(
                                 endInput.getText().toString().trim());
                         if (startSeconds < 0 || endSeconds > durationSeconds
                                 || endSeconds <= startSeconds) {
                             throw new NumberFormatException("Invalid range");
                         }
-                        startPermille = Math.max(0, Math.min(999,
-                                (int) Math.round(startSeconds / durationSeconds * 1000)));
-                        endPermille = Math.max(startPermille + 1, Math.min(1000,
-                                (int) Math.round(endSeconds / durationSeconds * 1000)));
+                        startUnits = Math.max(0, Math.min(999_999,
+                                (int) Math.round(startSeconds / durationSeconds * 1_000_000)));
+                        endUnits = Math.max(startUnits + 1, Math.min(1_000_000,
+                                (int) Math.round(endSeconds / durationSeconds * 1_000_000)));
+                        startPermille = startUnits / 1000;
+                        endPermille = Math.max(startPermille + 1,
+                                (endUnits + 999) / 1000);
                     } catch (NumberFormatException error) {
                         status.setText("Enter a valid range with End after Start.");
                         status.setTextColor(0xFFFF4444);
                         return;
                     }
-                    short[] trimmed = trimPcm(sourcePcm, startPermille, endPermille);
                     AudioEngine activeEngine = audioEngine;
-                    if (activeEngine == null || !activeEngine.uploadPcm(slot, trimmed)) {
+                    if (activeEngine == null) {
+                        status.setText("Audio engine is not available.");
+                        status.setTextColor(0xFFFF4444);
+                        return;
+                    }
+                    short[] trimmed = trimPcmByTime(sourcePcm, startSeconds, endSeconds,
+                            activeEngine.getSampleRate());
+                    if (!activeEngine.uploadPcm(slot, trimmed)) {
                         status.setText("Could not apply audio trim.");
                         status.setTextColor(0xFFFF4444);
                         return;
@@ -3663,6 +3812,8 @@ public class MainActivity extends Activity {
                     prefs.edit()
                             .putInt(trimStartKey(bankB, kitNo, padIndex), startPermille)
                             .putInt(trimEndKey(bankB, kitNo, padIndex), endPermille)
+                            .putInt(trimStartFineKey(bankB, kitNo, padIndex), startUnits)
+                            .putInt(trimEndFineKey(bankB, kitNo, padIndex), endUnits)
                             .commit();
                     saveKitToMemory(kitIndex);
                     Toast.makeText(this, "Audio trim saved for PAD "
@@ -3682,8 +3833,96 @@ public class MainActivity extends Activity {
         input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER
                 | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
         input.setSingleLine(true);
-        input.setText(String.format(java.util.Locale.US, "%.2f", seconds));
+        input.setText(String.format(java.util.Locale.US, "%.6f", seconds));
         return input;
+    }
+
+    private static short[] trimPcmByTime(short[] pcm, double startSeconds, double endSeconds,
+                                         int sampleRate) {
+        int frameCount = pcm.length / 2;
+        int startFrame = Math.max(0, Math.min(frameCount - 1,
+                (int) Math.round(startSeconds * sampleRate)));
+        int endFrame = Math.max(startFrame + 1, Math.min(frameCount,
+                (int) Math.round(endSeconds * sampleRate)));
+        return java.util.Arrays.copyOfRange(pcm, startFrame * 2, endFrame * 2);
+    }
+
+    private void startTrimmedWavExport(short[] pcm, int sampleRate, int padIndex) {
+        pendingTrimExportPcm = pcm;
+        pendingTrimExportSampleRate = sampleRate;
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("audio/wav");
+        intent.putExtra(Intent.EXTRA_TITLE,
+                "PAD_" + (padIndex + 1) + "_trimmed.wav");
+        try {
+            startActivityForResult(intent, REQ_SAVE_TRIMMED_WAV);
+        } catch (ActivityNotFoundException error) {
+            pendingTrimExportPcm = null;
+            pendingTrimExportSampleRate = 0;
+            Toast.makeText(this, "No file picker is available to save the WAV.",
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void saveTrimmedWav(Uri destination, short[] pcm, int sampleRate) {
+        kitLoadExecutor.execute(() -> {
+            try {
+                try (OutputStream output = getContentResolver().openOutputStream(destination)) {
+                    if (output == null) throw new IOException("Could not open the selected file.");
+                    long dataSize = (long) pcm.length * 2L;
+                    if (dataSize > Integer.MAX_VALUE - 36L) {
+                        throw new IOException("Trimmed WAV is too large to save.");
+                    }
+                    writeAscii(output, "RIFF");
+                    writeIntLittleEndian(output, (int) (36L + dataSize));
+                    writeAscii(output, "WAVEfmt ");
+                    writeIntLittleEndian(output, 16);
+                    writeShortLittleEndian(output, 1);
+                    writeShortLittleEndian(output, 2);
+                    writeIntLittleEndian(output, sampleRate);
+                    writeIntLittleEndian(output, sampleRate * 4);
+                    writeShortLittleEndian(output, 4);
+                    writeShortLittleEndian(output, 16);
+                    writeAscii(output, "data");
+                    writeIntLittleEndian(output, (int) dataSize);
+                    byte[] buffer = new byte[16 * 1024];
+                    int buffered = 0;
+                    for (short sample : pcm) {
+                        buffer[buffered++] = (byte) sample;
+                        buffer[buffered++] = (byte) (sample >>> 8);
+                        if (buffered == buffer.length) {
+                            output.write(buffer, 0, buffered);
+                            buffered = 0;
+                        }
+                    }
+                    if (buffered > 0) output.write(buffer, 0, buffered);
+                }
+                runOnUiThread(() -> Toast.makeText(this, "Trimmed WAV saved.",
+                        Toast.LENGTH_LONG).show());
+            } catch (IOException error) {
+                Log.e(TAG, "Could not save trimmed WAV", error);
+                runOnUiThread(() -> Toast.makeText(this,
+                        "Could not save trimmed WAV: " + error.getMessage(),
+                        Toast.LENGTH_LONG).show());
+            }
+        });
+    }
+
+    private static void writeAscii(OutputStream output, String value) throws IOException {
+        output.write(value.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+    }
+
+    private static void writeIntLittleEndian(OutputStream output, int value) throws IOException {
+        output.write(value & 0xff);
+        output.write((value >>> 8) & 0xff);
+        output.write((value >>> 16) & 0xff);
+        output.write((value >>> 24) & 0xff);
+    }
+
+    private static void writeShortLittleEndian(OutputStream output, int value) throws IOException {
+        output.write(value & 0xff);
+        output.write((value >>> 8) & 0xff);
     }
 
     private int dp(int value) {
@@ -3708,7 +3947,7 @@ public class MainActivity extends Activity {
         return waveform;
     }
 
-    private void playAudioTrimPreview(short[] pcm, int startPermille, int endPermille,
+    private void playAudioTrimPreview(short[] pcm, double startSeconds, double endSeconds,
                                       TextView status) {
         stopAudioTrimPreview();
         AudioEngine engine = audioEngine;
@@ -3718,9 +3957,9 @@ public class MainActivity extends Activity {
         }
         int frames = pcm.length / 2;
         int startFrame = Math.max(0, Math.min(frames - 1,
-                (int) ((long) frames * startPermille / 1000)));
+                (int) Math.round(startSeconds * engine.getSampleRate())));
         int endFrame = Math.max(startFrame + 1, Math.min(frames,
-                (int) ((long) frames * endPermille / 1000)));
+                (int) Math.round(endSeconds * engine.getSampleRate())));
         int minBuffer = AudioTrack.getMinBufferSize(engine.getSampleRate(),
                 AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
         if (minBuffer <= 0) {
@@ -3813,6 +4052,17 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         Uri uri;
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_SAVE_TRIMMED_WAV) {
+            short[] pcm = pendingTrimExportPcm;
+            int sampleRate = pendingTrimExportSampleRate;
+            pendingTrimExportPcm = null;
+            pendingTrimExportSampleRate = 0;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null
+                    && pcm != null && sampleRate > 0) {
+                saveTrimmedWav(data.getData(), pcm, sampleRate);
+            }
+            return;
+        }
         if (this.themeCustomizer != null
                 && this.themeCustomizer.handlesPickerRequest(requestCode)) {
             this.themeCustomizer.handlePickerResult(requestCode, resultCode, data);
@@ -4129,9 +4379,7 @@ public class MainActivity extends Activity {
                     }
                 }
                 if (pcmsA[i] != null && pcmsA[i].length > 0) {
-                    pcmsA[i] = trimPcm(pcmsA[i],
-                            prefs.getInt(trimStartKey(false, kitNo, i), 0),
-                            prefs.getInt(trimEndKey(false, kitNo, i), 1000));
+                    pcmsA[i] = trimPcmForPad(pcmsA[i], false, kitNo, i);
                 }
             } catch (Exception ignored) {}
         }
@@ -4166,9 +4414,7 @@ public class MainActivity extends Activity {
                     }
                 }
                 if (pcmsB[i] != null && pcmsB[i].length > 0) {
-                    pcmsB[i] = trimPcm(pcmsB[i],
-                            prefs.getInt(trimStartKey(true, kitB, i), 0),
-                            prefs.getInt(trimEndKey(true, kitB, i), 1000));
+                    pcmsB[i] = trimPcmForPad(pcmsB[i], true, kitB, i);
                 }
             } catch (Exception ignored) {}
         }
