@@ -26,6 +26,7 @@ import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.ServerValue;
 import com.google.firebase.database.ValueEventListener;
 
 import java.util.HashMap;
@@ -363,7 +364,7 @@ public class LoginActivity extends Activity {
         Map<String, Object> data = new HashMap<>();
         data.put("email",       user.getEmail()       != null ? user.getEmail()       : "");
         data.put("displayName", user.getDisplayName() != null ? user.getDisplayName() : "");
-        data.put("timestamp",   System.currentTimeMillis());
+        data.put("timestamp",   ServerValue.TIMESTAMP);
         FirebaseDatabase.getInstance(DB_URL)
                 .getReference("pendingRequests")
                 .child(user.getUid())

@@ -33,11 +33,14 @@ import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.Query;
+import com.google.firebase.database.ServerValue;
 import com.google.firebase.database.ValueEventListener;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
@@ -46,6 +49,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TimeZone;
 
 public class AdminDashboardActivity extends AppCompatActivity {
 
@@ -55,12 +59,15 @@ public class AdminDashboardActivity extends AppCompatActivity {
     static final String KEY_NEW_REQUEST_PENDING = "new_request_pending";
     private static final String KEY_KNOWN_PENDING_UIDS = "known_pending_uids";
     private static final int BELL_IDLE_COLOR = 0xffeeeeee;
+    private static final TimeZone INDIA_TIME_ZONE = TimeZone.getTimeZone("Asia/Kolkata");
+    private static final String DATE_TIME_PATTERN = "dd MMM yyyy, hh:mm a";
 
     private FirebaseAuth auth;
     private DatabaseReference pendingRef;
     private DatabaseReference usersRef;
     private DatabaseReference deactivatedRef;
     private DatabaseReference profilesRef;
+    private Query activeQuery;
 
     private LinearLayout pendingContainer;
     private LinearLayout activeContainer;
@@ -127,6 +134,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
         boolean needsAccessSelection;
         String accessType;
         long activatedAt;
+        long deactivatedAt;
         long expiresAt;
 
         boolean hasAnyAppAccess() {
@@ -166,7 +174,9 @@ public class AdminDashboardActivity extends AppCompatActivity {
     protected void onDestroy() {
         stopBellBlink();
         if (pendingListener != null) pendingRef.removeEventListener(pendingListener);
-        if (activeListener != null) usersRef.removeEventListener(activeListener);
+        if (activeListener != null && activeQuery != null) {
+            activeQuery.removeEventListener(activeListener);
+        }
         if (deactivatedListener != null) deactivatedRef.removeEventListener(deactivatedListener);
         if (profilesListener != null) profilesRef.removeEventListener(profilesListener);
         expiryHandler.removeCallbacks(expiryCheck);
@@ -517,6 +527,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
     // ── Active list ───────────────────────────────────────────────────────────
 
     private void listenActive() {
+        activeQuery = usersRef.orderByChild("activatedAt");
         activeListener = new ValueEventListener() {
             @Override
             public void onDataChange(DataSnapshot snapshot) {
@@ -527,7 +538,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
                         "Active list error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
             }
         };
-        usersRef.addValueEventListener(activeListener);
+        activeQuery.addValueEventListener(activeListener);
     }
 
     private void updateActive(DataSnapshot snapshot) {
@@ -536,6 +547,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
             UserEntry entry = parseUserEntry(child, false);
             if (entry != null) allUsers.add(entry);
         }
+        Collections.reverse(allUsers);
         android.util.Log.i("AdminDashboard",
                 "Loaded " + allUsers.size() + " records from authorizedUsers");
         applySearchAndFilter();
@@ -598,12 +610,12 @@ public class AdminDashboardActivity extends AppCompatActivity {
         btnRefresh.setText("Refreshing...");
 
         refreshReference(pendingRef, "Pending", this::updatePending);
-        refreshReference(usersRef, "Active", this::updateActive);
+        refreshReference(activeQuery, "Active", this::updateActive);
         refreshReference(deactivatedRef, "Deactivated", this::updateDeactivated);
         refreshReference(profilesRef, "Registered users", this::updateProfiles);
     }
 
-    private void refreshReference(DatabaseReference reference, String listName,
+    private void refreshReference(Query reference, String listName,
                                   SnapshotUpdate update) {
         reference.get().addOnCompleteListener(this, task -> {
             if (isFinishing() || isDestroyed()) return;
@@ -679,6 +691,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
         entry.hasMiniSpd30 = appsSnap.exists() && readAppAccess(appsSnap, "miniSpd30");
 
         entry.activatedAt = readTimestamp(child.child("activatedAt"));
+        entry.deactivatedAt = readTimestamp(child.child("deactivatedAt"));
         entry.expiresAt = readTimestamp(child.child("expiresAt"));
         return entry;
     }
@@ -686,6 +699,12 @@ public class AdminDashboardActivity extends AppCompatActivity {
     private long readTimestamp(DataSnapshot snapshot) {
         Object value = snapshot.getValue();
         return value instanceof Number ? ((Number) value).longValue() : 0;
+    }
+
+    private String formatTimestamp(long timestamp) {
+        SimpleDateFormat formatter = new SimpleDateFormat(DATE_TIME_PATTERN, Locale.getDefault());
+        formatter.setTimeZone(INDIA_TIME_ZONE);
+        return formatter.format(new Date(timestamp));
     }
 
     private String readText(DataSnapshot snapshot) {
@@ -732,7 +751,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
                 if (hasAuthorizedRecord(entry.uid) || !matchesSearch(
                         entry.uid, entry.email, entry.displayName, q)) continue;
                 String subLine = entry.timestamp > 0
-                        ? "Request: " + new java.util.Date(entry.timestamp) : null;
+                        ? "Request (IST): " + formatTimestamp(entry.timestamp) : null;
                 pendingContainer.addView(buildPendingRow(
                         entry.uid, entry.email, entry.displayName, subLine));
                 any = true;
@@ -881,14 +900,13 @@ public class AdminDashboardActivity extends AppCompatActivity {
             return;
         }
 
-        SimpleDateFormat dateFormat = new SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault());
         String[] labels = new String[expired.size()];
         for (int i = 0; i < expired.size(); i++) {
             UserEntry entry = expired.get(i);
             String name = !TextUtils.isEmpty(entry.displayName)
                     ? entry.displayName
                     : !TextUtils.isEmpty(entry.email) ? entry.email : entry.uid;
-            labels[i] = name + " — expired " + dateFormat.format(new Date(entry.expiresAt));
+            labels[i] = name + " — expired " + formatTimestamp(entry.expiresAt) + " IST";
         }
 
         new AlertDialog.Builder(this)
@@ -920,16 +938,24 @@ public class AdminDashboardActivity extends AppCompatActivity {
         row.addView(txtStatus);
 
         // User info
-        addUserInfoViews(row, entry.uid, entry.email, entry.displayName,
-                "APK: " + (entry.hasFull ? "✅Full " : "❌Full ")
-                        + (entry.hasLoops ? "✅Loops " : "❌Loops ")
-                        + (entry.hasDrums ? "✅Drums " : "❌Drums ")
-                        + (entry.hasPro ? "✅Pro " : "❌Pro ")
-                        + (entry.hasPiano ? "✅Piano " : "❌Piano ")
-                        + (entry.hasSpd30 ? "✅SPD-30 " : "❌SPD-30 ")
-                        + (entry.hasMiniPro ? "✅Mini Pro " : "❌Mini Pro ")
-                        + (entry.hasMiniSpd30 ? "✅Mini SPD-30" : "❌Mini SPD-30")
-                        + (entry.deviceToken != null ? "  |  🔒 Device locked" : "  |  🔓 Unlocked"));
+        StringBuilder userDetails = new StringBuilder("APK: ")
+                .append(entry.hasFull ? "✅Full " : "❌Full ")
+                .append(entry.hasLoops ? "✅Loops " : "❌Loops ")
+                .append(entry.hasDrums ? "✅Drums " : "❌Drums ")
+                .append(entry.hasPro ? "✅Pro " : "❌Pro ")
+                .append(entry.hasPiano ? "✅Piano " : "❌Piano ")
+                .append(entry.hasSpd30 ? "✅SPD-30 " : "❌SPD-30 ")
+                .append(entry.hasMiniPro ? "✅Mini Pro " : "❌Mini Pro ")
+                .append(entry.hasMiniSpd30 ? "✅Mini SPD-30" : "❌Mini SPD-30")
+                .append(entry.deviceToken != null
+                        ? "  |  🔒 Device locked" : "  |  🔓 Unlocked");
+        if (entry.activatedAt > 0) {
+            userDetails.append("\nActivated (IST): ").append(formatTimestamp(entry.activatedAt));
+        }
+        if (entry.deactivatedAt > 0) {
+            userDetails.append("\nDeactivated (IST): ").append(formatTimestamp(entry.deactivatedAt));
+        }
+        addUserInfoViews(row, entry.uid, entry.email, entry.displayName, userDetails.toString());
 
         // Action buttons
         LinearLayout btnRow = new LinearLayout(this);
@@ -1052,12 +1078,12 @@ public class AdminDashboardActivity extends AppCompatActivity {
                                        boolean full, boolean loops, boolean drums,
                                        boolean pro, boolean piano, boolean spd30,
                                        boolean miniPro, boolean miniSpd30) {
-        Calendar initial = Calendar.getInstance();
+        Calendar initial = Calendar.getInstance(INDIA_TIME_ZONE);
         initial.add(Calendar.DAY_OF_YEAR, 1);
         DatePickerDialog datePicker = new DatePickerDialog(
                 this,
                 (view, year, month, dayOfMonth) -> {
-                    Calendar expiry = Calendar.getInstance();
+                    Calendar expiry = Calendar.getInstance(INDIA_TIME_ZONE);
                     expiry.set(year, month, dayOfMonth);
                     new TimePickerDialog(
                             this,
@@ -1097,7 +1123,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
         Map<String, Object> data = new HashMap<>();
         data.put("email",       email != null ? email : "");
         data.put("displayName", displayName != null ? displayName : "");
-        data.put("activatedAt", System.currentTimeMillis());
+        data.put("activatedAt", ServerValue.TIMESTAMP);
         data.put("accessType", trial ? "trial" : "permanent");
         if (trial) data.put("expiresAt", expiresAt);
 
@@ -1133,8 +1159,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
                 }
 
                 String type = trial ? "Trial activated until "
-                        + new SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
-                                .format(new Date(expiresAt))
+                        + formatTimestamp(expiresAt) + " IST"
                         : "Permanently activated";
                 Toast.makeText(this,
                         type + ": " + (!TextUtils.isEmpty(email) ? email : uid),
@@ -1223,10 +1248,9 @@ public class AdminDashboardActivity extends AppCompatActivity {
             }
 
             if (activating) {
-                record.put("activatedAt", System.currentTimeMillis());
-                record.remove("deactivatedAt");
+                record.put("activatedAt", ServerValue.TIMESTAMP);
             } else {
-                record.put("deactivatedAt", System.currentTimeMillis());
+                record.put("deactivatedAt", ServerValue.TIMESTAMP);
             }
 
             DatabaseReference destinationUser = destination.child(entry.uid);
@@ -1271,7 +1295,7 @@ public class AdminDashboardActivity extends AppCompatActivity {
             return;
         }
         Map<String, Object> data = new HashMap<>();
-        data.put("activatedAt", System.currentTimeMillis());
+        data.put("activatedAt", ServerValue.TIMESTAMP);
         data.put("accessType", "permanent");
         data.put("note", "manually added");
 
