@@ -1564,17 +1564,57 @@ public class MainActivity extends Activity {
             btnCCLearn.setTextSize(9f);
             btnCCLearn.setLayoutParams(new android.widget.LinearLayout.LayoutParams(-2, -2));
             ccLearnBtns[i] = btnCCLearn;
-            btnCCLearn.setOnClickListener(vv -> {
-                for (Button b : ccLearnBtns) if (b != null) b.setBackgroundColor(0xFF664400);
-                keyboardLearnMode = false;
-                keyboardLearnTargetPad = -1;
-                midiCCLearnTargetPad = padIdx;
-                midiCCLearnMode      = true;
-                midiLearnMode        = false;
-                btnCCLearn.setBackgroundColor(0xFFFF8800);
-                btnCCLearn.setText("⏳CC...");
-                Toast.makeText(this, "PAD " + (padIdx + 1) + ": SPD-20 CC button dabao...", Toast.LENGTH_SHORT).show();
-            });
+            btnCCLearn.setOnClickListener(vv ->
+                    new android.app.AlertDialog.Builder(this)
+                            .setTitle("Choose CC Learn input")
+                            .setItems(new String[]{"MIDI controller CC", "Typing keyboard key"},
+                                    (dialog, choice) -> {
+                                        for (Button b : ccLearnBtns) {
+                                            if (b != null) {
+                                                b.setBackgroundColor(0xFF664400);
+                                                b.setText("🎛️CC\nLEARN");
+                                            }
+                                        }
+                                        if (keyboardLearnTargetPad >= 0
+                                                && keyboardLearnTargetPad < keyboardLearnBtns.length) {
+                                            Button activeKeyLearn =
+                                                    keyboardLearnBtns[keyboardLearnTargetPad];
+                                            if (activeKeyLearn != null) {
+                                                activeKeyLearn.setText("⌨ KEY LEARN");
+                                                activeKeyLearn.setBackgroundColor(0xFF334466);
+                                            }
+                                        }
+                                        keyboardLearnMode = false;
+                                        keyboardLearnTargetPad = -1;
+                                        midiLearnMode = false;
+                                        midiLearnTargetPad = -1;
+                                        midiCCLearnMode = false;
+                                        midiCCLearnTargetPad = -1;
+                                        if (choice == 0) {
+                                            midiCCLearnTargetPad = padIdx;
+                                            midiCCLearnMode = true;
+                                            btnCCLearn.setBackgroundColor(0xFFFF8800);
+                                            btnCCLearn.setText("⏳CC...");
+                                            Toast.makeText(this, "PAD " + (padIdx + 1)
+                                                    + ": MIDI CC control dabao...",
+                                                    Toast.LENGTH_SHORT).show();
+                                            return;
+                                        }
+                                        keyboardLearnMode = true;
+                                        keyboardLearnTargetPad = padIdx;
+                                        if (!keyboardMappingEnabled) {
+                                            keyboardMappingEnabled = true;
+                                            saveKeyboardKeyMap();
+                                            btnKeyboardToggle.setText("⌨ KEYBOARD INPUT: ON");
+                                            btnKeyboardToggle.setBackgroundColor(0xFF006600);
+                                        }
+                                        keyboardLearnBtns[padIdx].setText("PRESS A KEY");
+                                        keyboardLearnBtns[padIdx].setBackgroundColor(0xFFCC8800);
+                                        Toast.makeText(this, "PAD " + (padIdx + 1)
+                                                + ": connected keyboard par key dabao",
+                                                Toast.LENGTH_SHORT).show();
+                                    })
+                            .show());
 
             row.addView(lbl);
             row.addView(et);
