@@ -277,7 +277,11 @@ public class MainActivity extends Activity {
     // background thread; the fast native upload runs back on the main thread.
     // kitLoadGeneration invalidates stale loads when the user switches quickly.
     private final java.util.concurrent.ExecutorService kitLoadExecutor =
-            java.util.concurrent.Executors.newSingleThreadExecutor();
+            java.util.concurrent.Executors.newSingleThreadExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "octapad-kit-loader");
+                thread.setPriority(Thread.MIN_PRIORITY);
+                return thread;
+            });
     private volatile int kitLoadGeneration = 0;
     // Sound references are loaded asynchronously. Keep ownership explicit so a
     // save triggered while the next kit is still decoding cannot copy the
@@ -4428,6 +4432,7 @@ public class MainActivity extends Activity {
                     AudioEngine.SampleData sd = new AudioEngine.SampleData(); sd.uri = urisA[i]; sd.soundId = i; sd.loaded = true;
                     this.samples[i] = sd;
                 } else { this.samples[i] = null; }
+                pcmsA[i] = null;
             }
             for (int i = 0; i < 8; i++) {
                 this.selectedWavUrisB[i]   = urisB[i]; this.selectedRawResIdsB[i] = rawsB[i];
@@ -4436,6 +4441,7 @@ public class MainActivity extends Activity {
                     AudioEngine.SampleData sd = new AudioEngine.SampleData(); sd.uri = urisB[i]; sd.soundId = i + 8; sd.loaded = true;
                     this.samplesB[i] = sd;
                 } else { this.samplesB[i] = null; }
+                pcmsB[i] = null;
             }
             // Publish ownership only after both banks have been atomically
             // applied on the UI thread. Saves before this point preserve the
@@ -5330,6 +5336,8 @@ public class MainActivity extends Activity {
     @Override // android.app.Activity
     protected void onDestroy() {
         if (MainActivity.globalInstance == this) MainActivity.globalInstance = null;
+        this.kitLoadGeneration++;
+        this.kitLoadExecutor.shutdown();
         if (fxAdvancedDialog != null) fxAdvancedDialog.dismiss();
         for (int i = 0; i < PAD_COUNT; i++) stopPadLed(i);
         if (ccKitDebounceRunnable != null) {
