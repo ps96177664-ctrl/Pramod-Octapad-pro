@@ -113,6 +113,16 @@ public class MainActivity extends Activity {
     private volatile boolean midiLearnMode        = false;
     private volatile int     midiLearnTargetPad   = -1;
     private Button           btnMidiMap           = null;
+    private static final int[] KEYBOARD_KEY_MAP_DEFAULT = {
+            android.view.KeyEvent.KEYCODE_1, android.view.KeyEvent.KEYCODE_2,
+            android.view.KeyEvent.KEYCODE_3, android.view.KeyEvent.KEYCODE_4,
+            android.view.KeyEvent.KEYCODE_5, android.view.KeyEvent.KEYCODE_6,
+            android.view.KeyEvent.KEYCODE_7, android.view.KeyEvent.KEYCODE_8
+    };
+    private volatile boolean keyboardMappingEnabled = false;
+    private final int[] keyboardKeyMap = KEYBOARD_KEY_MAP_DEFAULT.clone();
+    private volatile boolean keyboardLearnMode = false;
+    private volatile int keyboardLearnTargetPad = -1;
 
     // ── MIDI CC → Pad mapping ─────────────────────────────────────────────────
     private static final int[] MIDI_CC_PAD_DEFAULT = {-1,-1,-1,-1,-1,-1,-1,-1};
@@ -1324,6 +1334,10 @@ public class MainActivity extends Activity {
         for (int i = 0; i < 8; i++) {
             midiNoteMap[i] = prefs.getInt("midi_note_map_" + i, MIDI_NOTE_MAP_DEFAULT[i]);
         }
+        keyboardMappingEnabled = prefs.getBoolean("keyboard_key_mapping_on", false);
+        for (int i = 0; i < 8; i++) {
+            keyboardKeyMap[i] = prefs.getInt("keyboard_key_map_" + i, KEYBOARD_KEY_MAP_DEFAULT[i]);
+        }
     }
 
     private void saveMidiNoteMap() {
@@ -1331,6 +1345,51 @@ public class MainActivity extends Activity {
         ed.putBoolean("midi_key_mapping_on", midiKeyMappingEnabled);
         for (int i = 0; i < 8; i++) ed.putInt("midi_note_map_" + i, midiNoteMap[i]);
         ed.apply();
+    }
+
+    private void saveKeyboardKeyMap() {
+        SharedPreferences.Editor ed = prefs.edit();
+        ed.putBoolean("keyboard_key_mapping_on", keyboardMappingEnabled);
+        for (int i = 0; i < 8; i++) ed.putInt("keyboard_key_map_" + i, keyboardKeyMap[i]);
+        ed.apply();
+    }
+
+    private String keyboardKeyLabel(int keyCode) {
+        if (keyCode == android.view.KeyEvent.KEYCODE_UNKNOWN) return "Unassigned";
+        String label = android.view.KeyEvent.keyCodeToString(keyCode);
+        return label.startsWith("KEYCODE_") ? label.substring(8) : label;
+    }
+
+    private int findKeyboardMappedPad(int keyCode) {
+        if (keyCode == android.view.KeyEvent.KEYCODE_UNKNOWN) return -1;
+        for (int i = 0; i < keyboardKeyMap.length; i++) {
+            if (keyboardKeyMap[i] == keyCode) return i;
+        }
+        return -1;
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (keyboardMappingEnabled && isVisible
+                && !(getCurrentFocus() instanceof android.widget.EditText)) {
+            int padIndex = findKeyboardMappedPad(event.getKeyCode());
+            if (padIndex >= 0) {
+                if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
+                        && event.getRepeatCount() == 0) {
+                    playPadSoundImmediate(padIndex);
+                    Button pad = pads[padIndex];
+                    if (pad != null) {
+                        pad.setPressed(true);
+                        pad.postDelayed(() -> pad.setPressed(false), 100L);
+                    }
+                }
+                if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
+                        || event.getAction() == android.view.KeyEvent.ACTION_UP) {
+                    return true;
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event);
     }
 
     private void updateMidiMapButton() {
@@ -1413,10 +1472,23 @@ public class MainActivity extends Activity {
         btnToggle.setLayoutParams(toggleLP);
         root.addView(btnToggle);
 
+        final Button btnKeyboardToggle = new Button(this);
+        btnKeyboardToggle.setText(keyboardMappingEnabled
+                ? "⌨ KEYBOARD INPUT: ON" : "⌨ KEYBOARD INPUT: OFF");
+        btnKeyboardToggle.setBackgroundColor(keyboardMappingEnabled ? 0xFF006600 : 0xFF333333);
+        btnKeyboardToggle.setTextColor(0xFFFFFFFF);
+        btnKeyboardToggle.setTextSize(12f);
+        android.widget.LinearLayout.LayoutParams keyboardToggleLP =
+                new android.widget.LinearLayout.LayoutParams(-1, -2);
+        keyboardToggleLP.setMargins(0, 0, 0, 12);
+        btnKeyboardToggle.setLayoutParams(keyboardToggleLP);
+        root.addView(btnKeyboardToggle);
+
         android.widget.TextView tvInfo = new android.widget.TextView(this);
         tvInfo.setTextColor(0xFF888888);
         tvInfo.setTextSize(11f);
-        tvInfo.setText("Har pad ke liye MIDI note number set karo (0–127).\nLEARN: MIDI controller se koi button dabao — auto-assign hoga.");
+        tvInfo.setText("Har pad ke liye MIDI note ya physical keyboard key set karo.\n" +
+                "KEY LEARN ke baad connected keyboard par koi printable key dabao.");
         android.widget.LinearLayout.LayoutParams infoLP = new android.widget.LinearLayout.LayoutParams(-1, -2);
         infoLP.setMargins(0, 0, 0, 12);
         tvInfo.setLayoutParams(infoLP);
@@ -1426,6 +1498,8 @@ public class MainActivity extends Activity {
         final android.widget.EditText[] ccEdits    = new android.widget.EditText[8];
         final Button[]                  learnBtns  = new Button[8];
         final Button[]                  ccLearnBtns = new Button[8];
+        final android.widget.TextView[] keyboardKeyLabels = new android.widget.TextView[8];
+        final Button[]                  keyboardLearnBtns = new Button[8];
         for (int i = 0; i < 8; i++) {
             final int padIdx = i;
             android.widget.LinearLayout row = new android.widget.LinearLayout(this);
@@ -1462,6 +1536,8 @@ public class MainActivity extends Activity {
             learnBtns[i] = btnLearn;
             btnLearn.setOnClickListener(vv -> {
                 for (Button b : learnBtns) if (b != null) b.setBackgroundColor(0xFF003399);
+                keyboardLearnMode = false;
+                keyboardLearnTargetPad = -1;
                 midiLearnTargetPad = padIdx;
                 midiLearnMode      = true;
                 midiCCLearnMode    = false;
@@ -1493,6 +1569,8 @@ public class MainActivity extends Activity {
             ccLearnBtns[i] = btnCCLearn;
             btnCCLearn.setOnClickListener(vv -> {
                 for (Button b : ccLearnBtns) if (b != null) b.setBackgroundColor(0xFF664400);
+                keyboardLearnMode = false;
+                keyboardLearnTargetPad = -1;
                 midiCCLearnTargetPad = padIdx;
                 midiCCLearnMode      = true;
                 midiLearnMode        = false;
@@ -1507,6 +1585,44 @@ public class MainActivity extends Activity {
             row.addView(etCC);
             row.addView(btnCCLearn);
             root.addView(row);
+
+            android.widget.LinearLayout keyboardRow = new android.widget.LinearLayout(this);
+            keyboardRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            keyboardRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            android.widget.LinearLayout.LayoutParams keyboardRowLP =
+                    new android.widget.LinearLayout.LayoutParams(-1, -2);
+            keyboardRowLP.setMargins(0, 0, 0, 6);
+            keyboardRow.setLayoutParams(keyboardRowLP);
+
+            android.widget.TextView keyLabelView = new android.widget.TextView(this);
+            keyLabelView.setText("⌨ KEY: " + keyboardKeyLabel(keyboardKeyMap[i]));
+            keyLabelView.setTextColor(0xFFCCCCCC);
+            keyLabelView.setTextSize(11f);
+            keyLabelView.setLayoutParams(
+                    new android.widget.LinearLayout.LayoutParams(0, -2, 1f));
+            keyboardKeyLabels[i] = keyLabelView;
+
+            Button btnKeyboardLearn = new Button(this);
+            btnKeyboardLearn.setText("⌨ KEY LEARN");
+            btnKeyboardLearn.setBackgroundColor(0xFF334466);
+            btnKeyboardLearn.setTextColor(0xFFFFFFFF);
+            btnKeyboardLearn.setTextSize(9f);
+            keyboardLearnBtns[i] = btnKeyboardLearn;
+            btnKeyboardLearn.setOnClickListener(vv -> {
+                keyboardLearnMode = true;
+                keyboardLearnTargetPad = padIdx;
+                midiLearnMode = false;
+                midiLearnTargetPad = -1;
+                midiCCLearnMode = false;
+                midiCCLearnTargetPad = -1;
+                btnKeyboardLearn.setText("PRESS A KEY");
+                btnKeyboardLearn.setBackgroundColor(0xFFCC8800);
+                Toast.makeText(this, "PAD " + (padIdx + 1)
+                        + ": connected keyboard par key dabao", Toast.LENGTH_SHORT).show();
+            });
+            keyboardRow.addView(keyLabelView);
+            keyboardRow.addView(btnKeyboardLearn);
+            root.addView(keyboardRow);
         }
 
         android.widget.LinearLayout bottomRow = new android.widget.LinearLayout(this);
@@ -1541,12 +1657,57 @@ public class MainActivity extends Activity {
             .setNegativeButton("CLOSE", null)
             .create();
 
+        dlg.setOnKeyListener((dialog, keyCode, event) -> {
+            if (!keyboardLearnMode || event.getAction() != android.view.KeyEvent.ACTION_DOWN
+                    || event.getRepeatCount() != 0
+                    || android.view.KeyEvent.isModifierKey(keyCode)
+                    || event.getDisplayLabel() == 0
+                    || Character.isISOControl(event.getDisplayLabel())) {
+                return false;
+            }
+            int targetPad = keyboardLearnTargetPad;
+            if (targetPad < 0 || targetPad >= keyboardKeyMap.length) return false;
+            for (int i = 0; i < keyboardKeyMap.length; i++) {
+                if (i != targetPad && keyboardKeyMap[i] == keyCode) {
+                    keyboardKeyMap[i] = android.view.KeyEvent.KEYCODE_UNKNOWN;
+                    keyboardKeyLabels[i].setText("⌨ KEY: Unassigned");
+                    keyboardLearnBtns[i].setText("⌨ KEY LEARN");
+                    keyboardLearnBtns[i].setBackgroundColor(0xFF334466);
+                }
+            }
+            keyboardKeyMap[targetPad] = keyCode;
+            keyboardKeyLabels[targetPad].setText("⌨ KEY: " + keyboardKeyLabel(keyCode));
+            keyboardLearnBtns[targetPad].setText("⌨ KEY LEARN");
+            keyboardLearnBtns[targetPad].setBackgroundColor(0xFF334466);
+            keyboardLearnMode = false;
+            keyboardLearnTargetPad = -1;
+            saveKeyboardKeyMap();
+            Toast.makeText(this, "PAD " + (targetPad + 1) + " → "
+                    + keyboardKeyLabel(keyCode) + " mapped", Toast.LENGTH_SHORT).show();
+            return true;
+        });
+        dlg.setOnDismissListener(dialog -> {
+            keyboardLearnMode = false;
+            keyboardLearnTargetPad = -1;
+        });
+
         btnToggle.setOnClickListener(vv -> {
             midiKeyMappingEnabled = !midiKeyMappingEnabled;
             btnToggle.setText(midiKeyMappingEnabled ? "✅ CUSTOM MAPPING: ON  (tap to turn OFF)" : "❌ CUSTOM MAPPING: OFF  (tap to turn ON)");
             btnToggle.setBackgroundColor(midiKeyMappingEnabled ? 0xFF006600 : 0xFF333333);
             saveMidiNoteMap();
             updateMidiMapButton();
+        });
+
+        btnKeyboardToggle.setOnClickListener(vv -> {
+            keyboardMappingEnabled = !keyboardMappingEnabled;
+            keyboardLearnMode = false;
+            keyboardLearnTargetPad = -1;
+            btnKeyboardToggle.setText(keyboardMappingEnabled
+                    ? "⌨ KEYBOARD INPUT: ON" : "⌨ KEYBOARD INPUT: OFF");
+            btnKeyboardToggle.setBackgroundColor(
+                    keyboardMappingEnabled ? 0xFF006600 : 0xFF333333);
+            saveKeyboardKeyMap();
         });
 
         btnApply.setOnClickListener(vv -> {
@@ -1569,21 +1730,26 @@ public class MainActivity extends Activity {
             }
             saveMidiNoteMap();
             saveMidiCCPadMap();
-            Toast.makeText(this, "✅ Note + CC Mapping save ho gaya!", Toast.LENGTH_SHORT).show();
+            saveKeyboardKeyMap();
+            Toast.makeText(this, "✅ MIDI + keyboard mapping save ho gaya!", Toast.LENGTH_SHORT).show();
         });
 
         btnReset.setOnClickListener(vv -> new android.app.AlertDialog.Builder(this)
             .setTitle("Reset to Default?")
-            .setMessage("Notes default par aur CC map clear ho jayega.")
+            .setMessage("MIDI aur keyboard mappings default par reset hongi; CC map clear hoga.")
             .setPositiveButton("RESET", (d, w) -> {
                 System.arraycopy(MIDI_NOTE_MAP_DEFAULT, 0, midiNoteMap, 0, 8);
                 System.arraycopy(MIDI_CC_PAD_DEFAULT, 0, midiCCPadMap, 0, 8);
+                System.arraycopy(KEYBOARD_KEY_MAP_DEFAULT, 0, keyboardKeyMap, 0, 8);
                 for (int i = 0; i < 8; i++) {
                     noteEdits[i].setText(String.valueOf(midiNoteMap[i]));
                     ccEdits[i].setText("");
+                    keyboardKeyLabels[i].setText(
+                            "⌨ KEY: " + keyboardKeyLabel(keyboardKeyMap[i]));
                 }
                 saveMidiNoteMap();
                 saveMidiCCPadMap();
+                saveKeyboardKeyMap();
                 Toast.makeText(this, "↩ Default mapping restore ho gaya!", Toast.LENGTH_SHORT).show();
             })
             .setNegativeButton("Cancel", null)
