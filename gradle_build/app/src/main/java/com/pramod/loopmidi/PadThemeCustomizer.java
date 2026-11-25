@@ -63,6 +63,7 @@ final class PadThemeCustomizer {
     private static final String KEY_ANIMATION_MODE = "theme_animation_mode";
     private static final int MODE_IMAGE_PULSE = 0;
     private static final int MODE_SHADOW_PULSE = 1;
+    private static final int MODE_IMAGE_ON_HIT = 2;
     private static final int BORDER_NONE = 0;
     private static final int BORDER_NEON = 1;
     private static final int BORDER_RED = 2;
@@ -328,15 +329,20 @@ final class PadThemeCustomizer {
         RadioButton shadowPulse = new RadioButton(activity);
         shadowPulse.setText("Shadow animation when a pad is hit");
         shadowPulse.setId(View.generateViewId());
+        RadioButton imageOnHit = new RadioButton(activity);
+        imageOnHit.setText("Show pad image only when the pad is hit");
+        imageOnHit.setId(View.generateViewId());
         animationModes.addView(imagePulse);
         animationModes.addView(shadowPulse);
+        animationModes.addView(imageOnHit);
         int mode = preferences.getInt(KEY_ANIMATION_MODE, MODE_IMAGE_PULSE);
-        animationModes.check(mode == MODE_SHADOW_PULSE
-                ? shadowPulse.getId() : imagePulse.getId());
+        animationModes.check(mode == MODE_SHADOW_PULSE ? shadowPulse.getId()
+                : mode == MODE_IMAGE_ON_HIT ? imageOnHit.getId() : imagePulse.getId());
         animationModes.setOnCheckedChangeListener((group, checkedId) -> {
-            int selectedMode = checkedId == shadowPulse.getId()
-                    ? MODE_SHADOW_PULSE : MODE_IMAGE_PULSE;
+            int selectedMode = checkedId == shadowPulse.getId() ? MODE_SHADOW_PULSE
+                    : checkedId == imageOnHit.getId() ? MODE_IMAGE_ON_HIT : MODE_IMAGE_PULSE;
             preferences.edit().putInt(KEY_ANIMATION_MODE, selectedMode).apply();
+            for (int i = 0; i < pads.length; i++) applyPadImage(i);
         });
         content.addView(animationModes);
 
@@ -431,6 +437,13 @@ final class PadThemeCustomizer {
         }
         if (image == null) return;
         int restingAlpha = preferences.getInt(KEY_PAD_OPACITY + padIndex, 70) * 255 / 100;
+        if (mode == MODE_IMAGE_ON_HIT) {
+            ObjectAnimator reveal = ObjectAnimator.ofInt(
+                    image, "alpha", 0, restingAlpha, 0);
+            reveal.setDuration(240);
+            reveal.start();
+            return;
+        }
         ObjectAnimator pulse = ObjectAnimator.ofInt(
                 image, "alpha", restingAlpha, Math.min(255, restingAlpha + 90), restingAlpha);
         pulse.setDuration(180);
@@ -460,7 +473,9 @@ final class PadThemeCustomizer {
             BitmapDrawable image = new BitmapDrawable(activity.getResources(), bitmap);
             image.setFilterBitmap(true);
             image.setDither(true);
-            image.setAlpha(preferences.getInt(KEY_PAD_OPACITY + padIndex, 70) * 255 / 100);
+            int imageAlpha = preferences.getInt(KEY_PAD_OPACITY + padIndex, 70) * 255 / 100;
+            image.setAlpha(preferences.getInt(KEY_ANIMATION_MODE, MODE_IMAGE_PULSE)
+                    == MODE_IMAGE_ON_HIT ? 0 : imageAlpha);
             int borderColor = getPadImageOutlineColor(padIndex);
             Drawable border = createPadBorder(borderColor);
             pads[padIndex].setBackground(borderColor == 0

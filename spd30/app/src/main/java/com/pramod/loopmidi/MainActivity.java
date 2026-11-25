@@ -4436,8 +4436,7 @@ public class MainActivity extends Activity {
             this.currentPresetKit = kitNo - 1;
             this.currentKitName = this.prefs.getString("kit_name_" + kitNo, this.presetKitNames[this.currentPresetKit]);
         } else {
-            // Manual kits do not have a preset index. Use the first built-in
-            // kit only as a deterministic fallback for missing pad files.
+            // Manual kits have no preset samples; unassigned pads stay silent.
             this.currentPresetKit = 0;
             this.currentKitName = this.prefs.getString("kit_name_" + kitNo, "KIT " + kitNo);
         }
@@ -4492,9 +4491,9 @@ public class MainActivity extends Activity {
         final int gen = ++this.kitLoadGeneration;
         final int kA = kitNo, kBk = this.kitIndexB;
         final int fallbackPresetA = (kitNo >= 1 && kitNo <= this.presetKitNames.length)
-                ? kitNo - 1 : 0;
+                ? kitNo - 1 : -1;
         final int fallbackPresetB = (kBk >= 1 && kBk <= this.presetKitNames.length)
-                ? kBk - 1 : 0;
+                ? kBk - 1 : -1;
         this.loadedSoundKitA = -1;
         this.loadedSoundKitB = -1;
         // Persist the loaded kit index every time a kit is loaded — regardless of
@@ -4519,6 +4518,10 @@ public class MainActivity extends Activity {
             try {
                 String uriStr = this.prefs.getString("kit_" + kitNo + "_uri_" + i, null);
                 int rawResId  = this.prefs.getInt("kit_" + kitNo + "_raw_" + i, 0);
+                if (fallbackPresetA < 0 && rawResId == this.presetKits[0][i]) {
+                    this.prefs.edit().remove("kit_" + kitNo + "_raw_" + i).apply();
+                    rawResId = 0;
+                }
                 if (uriStr != null) {
                     urisA[i] = Uri.parse(uriStr);
                     pcmsA[i] = engine.decodeUriToPcm(urisA[i]);
@@ -4533,14 +4536,13 @@ public class MainActivity extends Activity {
                 } else if (rawResId != 0) {
                     rawsA[i] = rawResId;
                     pcmsA[i] = engine.decodeRawToPcm(rawResId);
-                } else {
+                } else if (fallbackPresetA >= 0) {
                     rawsA[i] = this.presetKits[fallbackPresetA][i];
                     pcmsA[i] = engine.decodeRawToPcm(rawsA[i]);
                 }
-                // A missing/expired manual URI or an invalid saved raw resource
-                // must still replace the native slot with a known sample. Keep
-                // the URI reference above so a later permission restore can use it.
-                if (pcmsA[i] == null || pcmsA[i].length == 0) {
+                // Missing preset samples use that preset's own pad sound. Manual
+                // kits intentionally leave missing or expired pads silent.
+                if ((pcmsA[i] == null || pcmsA[i].length == 0) && fallbackPresetA >= 0) {
                     int fallbackRaw = this.presetKits[fallbackPresetA][i];
                     short[] fallbackPcm = engine.decodeRawToPcm(fallbackRaw);
                     if (fallbackPcm != null && fallbackPcm.length > 0) {
@@ -4561,6 +4563,10 @@ public class MainActivity extends Activity {
             try {
                 String uriBStr = this.prefs.getString("kit_" + kitB + "_B_uri_" + i, null);
                 int rawBResId  = this.prefs.getInt("kit_" + kitB + "_B_raw_" + i, 0);
+                if (fallbackPresetB < 0 && rawBResId == this.presetKits[0][i]) {
+                    this.prefs.edit().remove("kit_" + kitB + "_B_raw_" + i).apply();
+                    rawBResId = 0;
+                }
                 if (uriBStr != null) {
                     urisB[i] = Uri.parse(uriBStr);
                     pcmsB[i] = engine.decodeUriToPcm(urisB[i]);
@@ -4571,11 +4577,11 @@ public class MainActivity extends Activity {
                 } else if (rawBResId != 0) {
                     rawsB[i] = rawBResId;
                     pcmsB[i] = engine.decodeRawToPcm(rawBResId);
-                } else {
+                } else if (fallbackPresetB >= 0) {
                     rawsB[i] = this.presetKits[fallbackPresetB][i];
                     pcmsB[i] = engine.decodeRawToPcm(rawsB[i]);
                 }
-                if (pcmsB[i] == null || pcmsB[i].length == 0) {
+                if ((pcmsB[i] == null || pcmsB[i].length == 0) && fallbackPresetB >= 0) {
                     int fallbackRaw = this.presetKits[fallbackPresetB][i];
                     short[] fallbackPcm = engine.decodeRawToPcm(fallbackRaw);
                     if (fallbackPcm != null && fallbackPcm.length > 0) {
@@ -4646,9 +4652,9 @@ public class MainActivity extends Activity {
             boolean loadIntoA = (bankMode != BANK_B);
             boolean loadIntoB = (bankMode == BANK_B || bankMode == LAYER_AB);
             int fallbackPresetA = (this.kitIndex >= 1 && this.kitIndex <= this.presetKitNames.length)
-                    ? this.kitIndex - 1 : 0;
+                    ? this.kitIndex - 1 : -1;
             int fallbackPresetB = (this.kitIndexB >= 1 && this.kitIndexB <= this.presetKitNames.length)
-                    ? this.kitIndexB - 1 : 0;
+                    ? this.kitIndexB - 1 : -1;
             int i2 = 0;
             while (true) {
                 i = 8;
@@ -4663,7 +4669,7 @@ public class MainActivity extends Activity {
                         this.selectedWavUris[i2]  = wav.getUri();
                         this.selectedRawResIds[i2] = 0;
                         this.samples[i2] = this.audioEngine.loadWavFromUri(i2, wav.getUri());
-                        if (this.samples[i2] == null) {
+                        if (this.samples[i2] == null && fallbackPresetA >= 0) {
                             this.samples[i2] = this.audioEngine.loadRawSound(
                                     i2, this.presetKits[fallbackPresetA][i2]);
                         }
@@ -4673,25 +4679,27 @@ public class MainActivity extends Activity {
                         this.selectedWavUrisB[i2]  = wav.getUri();
                         this.selectedRawResIdsB[i2] = 0;
                         this.samplesB[i2] = this.audioEngine.loadWavFromUri(i2 + 8, wav.getUri());
-                        if (this.samplesB[i2] == null) {
+                        if (this.samplesB[i2] == null && fallbackPresetB >= 0) {
                             this.samplesB[i2] = this.audioEngine.loadRawSound(
                                     i2 + 8, this.presetKits[fallbackPresetB][i2]);
                         }
                         if (this.samplesB[i2] != null) this.audioEngine.preloadSample(this.samplesB[i2]);
                     }
                 } else {
-                    int rawIdA = this.presetKits[fallbackPresetA][i2];
-                    int rawIdB = this.presetKits[fallbackPresetB][i2];
+                    int rawIdA = fallbackPresetA >= 0 ? this.presetKits[fallbackPresetA][i2] : 0;
+                    int rawIdB = fallbackPresetB >= 0 ? this.presetKits[fallbackPresetB][i2] : 0;
                     if (loadIntoA) {
                         this.selectedWavUris[i2]  = null;
                         this.selectedRawResIds[i2] = rawIdA;
-                        this.samples[i2] = this.audioEngine.loadRawSound(i2, rawIdA);
+                        this.samples[i2] = rawIdA != 0
+                                ? this.audioEngine.loadRawSound(i2, rawIdA) : null;
                         if (this.samples[i2] != null) this.audioEngine.preloadSample(this.samples[i2]);
                     }
                     if (loadIntoB) {
                         this.selectedWavUrisB[i2]  = null;
                         this.selectedRawResIdsB[i2] = rawIdB;
-                        this.samplesB[i2] = this.audioEngine.loadRawSound(i2 + 8, rawIdB);
+                        this.samplesB[i2] = rawIdB != 0
+                                ? this.audioEngine.loadRawSound(i2 + 8, rawIdB) : null;
                         if (this.samplesB[i2] != null) this.audioEngine.preloadSample(this.samplesB[i2]);
                     }
                 }
@@ -4922,12 +4930,17 @@ public class MainActivity extends Activity {
         if (engine == null) return;
         int kitNo = bankA ? this.kitIndex : this.kitIndexB;
         int fallbackPreset = (kitNo >= 1 && kitNo <= this.presetKitNames.length)
-                ? kitNo - 1 : 0;
+                ? kitNo - 1 : -1;
         for (int i = 0; i < 8; i++) {
             String uriStr = this.prefs.getString(
                     "kit_" + kitNo + (bankA ? "_uri_" : "_B_uri_") + i, null);
             int rawId = this.prefs.getInt(
                     "kit_" + kitNo + (bankA ? "_raw_" : "_B_raw_") + i, 0);
+            if (fallbackPreset < 0 && rawId == this.presetKits[0][i]) {
+                this.prefs.edit().remove(
+                        "kit_" + kitNo + (bankA ? "_raw_" : "_B_raw_") + i).apply();
+                rawId = 0;
+            }
             int padIdx = bankA ? i : i + 8;
             Uri savedUri = uriStr != null ? Uri.parse(uriStr) : null;
             if (bankA) {
@@ -4944,21 +4957,24 @@ public class MainActivity extends Activity {
                     if (sd != null) {
                         engine.preloadSample(sd);
                     } else {
-                        // Keep the saved URI for a future permission restore, but
-                        // replace the native slot with a deterministic fallback now.
-                        sd = engine.loadRawSound(padIdx, this.presetKits[fallbackPreset][i]);
-                        if (sd != null) engine.preloadSample(sd);
+                        // Keep the URI for a future permission restore. Only
+                        // preset kits receive their built-in fallback sound.
+                        if (fallbackPreset >= 0) {
+                            sd = engine.loadRawSound(padIdx, this.presetKits[fallbackPreset][i]);
+                            if (sd != null) engine.preloadSample(sd);
+                        }
                     }
                     if (bankA) this.samples[i] = sd; else this.samplesB[i] = sd;
                 } else if (rawId != 0) {
                     AudioEngine.SampleData sd = engine.loadRawSound(padIdx, rawId);
-                    if (sd == null) sd = engine.loadRawSound(padIdx, this.presetKits[fallbackPreset][i]);
+                    if (sd == null && fallbackPreset >= 0) {
+                        sd = engine.loadRawSound(padIdx, this.presetKits[fallbackPreset][i]);
+                    }
                     if (sd != null) engine.preloadSample(sd);
                     if (bankA) this.samples[i] = sd; else this.samplesB[i] = sd;
                 } else {
-                    // No saved uri/raw → fall back to the preset kit sound so the
-                    // bank is never left completely empty.
-                    int fallbackRaw = this.presetKits[fallbackPreset][i];
+                    int fallbackRaw = fallbackPreset >= 0
+                            ? this.presetKits[fallbackPreset][i] : 0;
                     if (bankA) {
                         this.selectedWavUris[i] = null;
                         this.selectedRawResIds[i] = fallbackRaw;
@@ -4966,7 +4982,8 @@ public class MainActivity extends Activity {
                         this.selectedWavUrisB[i] = null;
                         this.selectedRawResIdsB[i] = fallbackRaw;
                     }
-                    AudioEngine.SampleData sd = engine.loadRawSound(padIdx, fallbackRaw);
+                    AudioEngine.SampleData sd = fallbackRaw != 0
+                            ? engine.loadRawSound(padIdx, fallbackRaw) : null;
                     if (sd != null) { engine.preloadSample(sd); if (bankA) this.samples[i] = sd; else this.samplesB[i] = sd; }
                 }
             } catch (Exception ignored) {}
