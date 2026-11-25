@@ -130,9 +130,21 @@ public class MainActivity extends Activity {
     // ── MIDI CC → Global Controls learn mode ─────────────────────────────────
     private volatile boolean          midiCCControlLearnMode = false;
     private volatile String           midiCCControlLearnKey  = null;
+    private volatile boolean          midiCCControlKeyboardLearnMode = false;
+    private volatile String           midiCCControlKeyboardLearnKey = null;
     private android.widget.TextView[] midiCCCtrlValViews     = null;
     private Button[]                  midiCCCtrlLearnBtns    = null;
+    private android.widget.TextView[] midiCCCtrlKeyboardKeyViews = null;
+    private Button[]                  midiCCCtrlKeyboardLearnBtns = null;
     private String[]                  midiCCCtrlKeys         = null;
+    private static final String[] MIDI_CC_CONTROL_KEYS = {
+            "midi_cc_volume", "midi_cc_tempo", "midi_cc_pitch", "midi_cc_kit",
+            "midi_cc_volume_minus", "midi_cc_volume_plus", "midi_cc_tempo_minus",
+            "midi_cc_tempo_plus", "midi_cc_pitch_minus", "midi_cc_pitch_plus",
+            "midi_cc_stop", "midi_cc_kit_prev", "midi_cc_kit_next", "midi_cc_connect_toggle"
+    };
+    private static final int[] MIDI_CC_CONTROL_DEFAULTS =
+            {7, 20, 21, 22, 80, 81, 82, 83, 84, 85, 123, 24, 25, 26};
     private android.app.AlertDialog   midiCCCtrlDialog       = null;
     private Button                    btnCCCtrl              = null;
     // ── MIDI CC step-control debounce ─────────────────────────────────────────
@@ -738,7 +750,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         android.widget.TextView sub = new android.widget.TextView(this);
-        sub.setText("LEARN dabao → Pramod SPD-20 Pro ka button dabao → auto-map! ✅");
+        sub.setText("LEARN = MIDI CC; ⌨ KEY = typing keyboard mapping");
         sub.setTextColor(0xFFAAAAAA);
         sub.setTextSize(10f);
         sub.setPadding(0, 4, 0, 14);
@@ -766,9 +778,14 @@ public class MainActivity extends Activity {
 
         final android.widget.TextView[] valViews  = new android.widget.TextView[labels.length];
         final Button[]                  learnBtns = new Button[labels.length];
+        final android.widget.TextView[] keyboardKeyViews =
+                new android.widget.TextView[labels.length];
+        final Button[] keyboardLearnBtns = new Button[labels.length];
         midiCCCtrlKeys      = keys;
         midiCCCtrlValViews  = valViews;
         midiCCCtrlLearnBtns = learnBtns;
+        midiCCCtrlKeyboardKeyViews = keyboardKeyViews;
+        midiCCCtrlKeyboardLearnBtns = keyboardLearnBtns;
 
         for (int i = 0; i < labels.length; i++) {
             final int    idx = i;
@@ -814,6 +831,8 @@ public class MainActivity extends Activity {
             lb.setOnClickListener(vv -> {
                 midiCCControlLearnMode = false;
                 midiCCControlLearnKey  = null;
+                midiCCControlKeyboardLearnMode = false;
+                midiCCControlKeyboardLearnKey = null;
                 for (Button b : learnBtns) {
                     if (b != null) { b.setBackgroundColor(0xFF334466); b.setText("LEARN"); }
                 }
@@ -823,6 +842,40 @@ public class MainActivity extends Activity {
                 lb.setText("⏳SPD...");
             });
             row.addView(lb);
+
+            Button keyboardLearnBtn = new Button(this);
+            int mappedKey = prefs.getInt("midi_cc_keyboard_" + key,
+                    android.view.KeyEvent.KEYCODE_UNKNOWN);
+            keyboardLearnBtn.setText(mappedKey == android.view.KeyEvent.KEYCODE_UNKNOWN
+                    ? "⌨ KEY" : "⌨ " + keyboardKeyLabel(mappedKey));
+            keyboardLearnBtn.setTextSize(8f);
+            keyboardLearnBtn.setTextColor(0xFFFFFFFF);
+            keyboardLearnBtn.setBackgroundColor(mappedKey == android.view.KeyEvent.KEYCODE_UNKNOWN
+                    ? 0xFF334466 : 0xFF005500);
+            keyboardLearnBtn.setOnClickListener(vv -> {
+                midiCCControlLearnMode = false;
+                midiCCControlLearnKey = null;
+                midiCCControlKeyboardLearnMode = true;
+                midiCCControlKeyboardLearnKey = key;
+                for (int buttonIndex = 0; buttonIndex < keyboardLearnBtns.length; buttonIndex++) {
+                    Button button = keyboardLearnBtns[buttonIndex];
+                    if (button == null) continue;
+                    int existingKey = prefs.getInt(
+                            "midi_cc_keyboard_" + keys[buttonIndex],
+                            android.view.KeyEvent.KEYCODE_UNKNOWN);
+                    button.setText(existingKey == android.view.KeyEvent.KEYCODE_UNKNOWN
+                            ? "⌨ KEY" : "⌨ " + keyboardKeyLabel(existingKey));
+                    button.setBackgroundColor(existingKey == android.view.KeyEvent.KEYCODE_UNKNOWN
+                            ? 0xFF334466 : 0xFF005500);
+                }
+                keyboardLearnBtn.setText("PRESS KEY");
+                keyboardLearnBtn.setBackgroundColor(0xFFFF6600);
+                Toast.makeText(this, labels[idx] + ": keyboard key dabao",
+                        Toast.LENGTH_SHORT).show();
+            });
+            keyboardKeyViews[idx] = keyboardLearnBtn;
+            keyboardLearnBtns[idx] = keyboardLearnBtn;
+            row.addView(keyboardLearnBtn);
             root.addView(row);
         }
 
@@ -1012,12 +1065,46 @@ public class MainActivity extends Activity {
                 midiCCControlLearnMode = false;
                 midiCCControlLearnKey  = null;
             })
+            .setOnKeyListener((dialog, keyCode, event) -> {
+                if (!midiCCControlKeyboardLearnMode
+                        || event.getAction() != android.view.KeyEvent.ACTION_DOWN
+                        || event.getRepeatCount() != 0
+                        || keyCode == android.view.KeyEvent.KEYCODE_UNKNOWN
+                        || android.view.KeyEvent.isModifierKey(keyCode)) {
+                    return false;
+                }
+                String targetKey = midiCCControlKeyboardLearnKey;
+                int targetIndex = java.util.Arrays.asList(keys).indexOf(targetKey);
+                if (targetIndex < 0) return false;
+                int unknown = android.view.KeyEvent.KEYCODE_UNKNOWN;
+                SharedPreferences.Editor editor = prefs.edit();
+                for (int i = 0; i < keys.length; i++) {
+                    if (i != targetIndex
+                            && prefs.getInt("midi_cc_keyboard_" + keys[i], unknown) == keyCode) {
+                        editor.putInt("midi_cc_keyboard_" + keys[i], unknown);
+                        keyboardKeyViews[i].setText("⌨ KEY");
+                        keyboardLearnBtns[i].setBackgroundColor(0xFF334466);
+                    }
+                }
+                editor.putInt("midi_cc_keyboard_" + targetKey, keyCode).apply();
+                midiCCControlKeyboardLearnMode = false;
+                midiCCControlKeyboardLearnKey = null;
+                keyboardKeyViews[targetIndex].setText("⌨ " + keyboardKeyLabel(keyCode));
+                keyboardLearnBtns[targetIndex].setBackgroundColor(0xFF005500);
+                Toast.makeText(this, labels[targetIndex] + " → "
+                        + keyboardKeyLabel(keyCode) + " mapped", Toast.LENGTH_SHORT).show();
+                return true;
+            })
             .setOnDismissListener(d -> {
                 midiCCControlLearnMode = false;
                 midiCCControlLearnKey  = null;
+                midiCCControlKeyboardLearnMode = false;
+                midiCCControlKeyboardLearnKey = null;
                 midiCCCtrlDialog    = null;
                 midiCCCtrlValViews  = null;
                 midiCCCtrlLearnBtns = null;
+                midiCCCtrlKeyboardKeyViews = null;
+                midiCCCtrlKeyboardLearnBtns = null;
                 midiCCCtrlKeys      = null;
             })
             .show();
@@ -1371,6 +1458,20 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (isVisible && midiCCCtrlDialog == null && !midiCCControlKeyboardLearnMode
+                && !(getCurrentFocus() instanceof android.widget.EditText)
+                && event.getAction() == android.view.KeyEvent.ACTION_DOWN
+                && !event.isCtrlPressed() && !event.isAltPressed() && !event.isMetaPressed()
+                && event.getRepeatCount() == 0) {
+            for (int i = 0; i < MIDI_CC_CONTROL_KEYS.length; i++) {
+                if (prefs.getInt("midi_cc_keyboard_" + MIDI_CC_CONTROL_KEYS[i],
+                        android.view.KeyEvent.KEYCODE_UNKNOWN) == event.getKeyCode()) {
+                    handleMidiCC(prefs.getInt(MIDI_CC_CONTROL_KEYS[i],
+                            MIDI_CC_CONTROL_DEFAULTS[i]), 127);
+                    return true;
+                }
+            }
+        }
         if (keyboardMappingEnabled && isVisible
                 && !(getCurrentFocus() instanceof android.widget.EditText)) {
             int padIndex = findKeyboardMappedPad(event.getKeyCode());
