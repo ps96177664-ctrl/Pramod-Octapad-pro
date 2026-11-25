@@ -25,6 +25,7 @@ import android.graphics.drawable.RippleDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -47,6 +48,7 @@ final class PadThemeCustomizer {
     static final int REQUEST_BACKGROUND_IMAGE = 5012;
     static final int REQUEST_COMBINED_IMAGE = 5013;
     static final int REQUEST_PAD_AREA_BACKGROUND = 5014;
+    static final int REQUEST_PAD_AREA_OVERLAY = 5015;
     private static final String KEY_PRESET = "theme_preset";
     private static final String KEY_BORDER_ALL = "theme_border_all";
     private static final String KEY_BORDER_COLOR = "theme_border_color_";
@@ -63,6 +65,8 @@ final class PadThemeCustomizer {
     private static final String KEY_BACKGROUND_OPACITY = "theme_background_opacity";
     private static final String KEY_PAD_AREA_BACKGROUND_IMAGE = "theme_pad_area_background_image";
     private static final String KEY_PAD_AREA_BACKGROUND_OPACITY = "theme_pad_area_background_opacity";
+    private static final String KEY_PAD_AREA_OVERLAY_IMAGE = "theme_pad_area_overlay_image";
+    private static final String KEY_PAD_AREA_OVERLAY_OPACITY = "theme_pad_area_overlay_opacity";
     private static final String KEY_ANIMATION_MODE = "theme_animation_mode";
     private static final int MODE_IMAGE_PULSE = 0;
     private static final int MODE_SHADOW_PULSE = 1;
@@ -82,6 +86,7 @@ final class PadThemeCustomizer {
     private final View root;
     private final View padArea;
     private final Drawable basePadAreaBackground;
+    private Drawable padAreaOverlayImage;
     private final Drawable baseRootBackground;
     private final View[] backgroundSurfaces;
     private final Drawable[] baseSurfaceBackgrounds;
@@ -103,6 +108,11 @@ final class PadThemeCustomizer {
         this.padArea = root.findViewById(R.id.padArea);
         this.basePadAreaBackground = padArea == null
                 ? null : cloneDrawable(padArea.getBackground());
+        if (padArea != null) {
+            padArea.addOnLayoutChangeListener((view, left, top, right, bottom,
+                                               oldLeft, oldTop, oldRight, oldBottom) ->
+                    updatePadAreaOverlayBounds());
+        }
         this.baseRootBackground = cloneDrawable(root.getBackground());
         int[] surfaceIds = {R.id.topControlBar, R.id.fxControlBar, R.id.advControlBar,
                 R.id.favDrumRow, R.id.titleBar, R.id.padArea};
@@ -140,6 +150,7 @@ final class PadThemeCustomizer {
         }
         applyGlobalBackground();
         applyPadAreaBackground();
+        applyPadAreaOverlayBackground();
         applyPadLabels();
         applyToggleStyles();
     }
@@ -342,6 +353,19 @@ final class PadThemeCustomizer {
                 preferences.getInt(KEY_PAD_AREA_BACKGROUND_OPACITY, 35),
                 this::setPadAreaBackgroundOpacity, null);
 
+        addSectionTitle(content, "PAD AREA FOREGROUND OVERLAY");
+        Button choosePadAreaOverlay = addButton(content, "Choose image over pad area");
+        choosePadAreaOverlay.setOnClickListener(v -> launchPicker(REQUEST_PAD_AREA_OVERLAY));
+        Button clearPadAreaOverlay = addButton(content, "Remove pad area overlay");
+        clearPadAreaOverlay.setOnClickListener(v -> {
+            preferences.edit().remove(KEY_PAD_AREA_OVERLAY_IMAGE).apply();
+            applyPadAreaOverlayBackground();
+            Toast.makeText(activity, "Pad area overlay removed", Toast.LENGTH_SHORT).show();
+        });
+        addOpacityControl(content, "Pad area overlay opacity",
+                preferences.getInt(KEY_PAD_AREA_OVERLAY_OPACITY, 35),
+                this::setPadAreaOverlayOpacity, null);
+
         addSectionTitle(content, "HIT ANIMATION");
         RadioGroup animationModes = new RadioGroup(activity);
         animationModes.setOrientation(RadioGroup.VERTICAL);
@@ -378,7 +402,8 @@ final class PadThemeCustomizer {
     boolean handlesPickerRequest(int requestCode) {
         return requestCode == REQUEST_PAD_IMAGE || requestCode == REQUEST_BACKGROUND_IMAGE
                 || requestCode == REQUEST_COMBINED_IMAGE
-                || requestCode == REQUEST_PAD_AREA_BACKGROUND;
+                || requestCode == REQUEST_PAD_AREA_BACKGROUND
+                || requestCode == REQUEST_PAD_AREA_OVERLAY;
     }
 
     void handlePickerResult(int requestCode, int resultCode, Intent data) {
@@ -417,6 +442,9 @@ final class PadThemeCustomizer {
             } else if (requestCode == REQUEST_PAD_AREA_BACKGROUND) {
                 preferences.edit().putString(KEY_PAD_AREA_BACKGROUND_IMAGE, uri.toString()).apply();
                 applyPadAreaBackground();
+            } else if (requestCode == REQUEST_PAD_AREA_OVERLAY) {
+                preferences.edit().putString(KEY_PAD_AREA_OVERLAY_IMAGE, uri.toString()).apply();
+                applyPadAreaOverlayBackground();
             } else if (requestCode == REQUEST_COMBINED_IMAGE) {
                 SharedPreferences.Editor editor = preferences.edit()
                         .putString(KEY_BACKGROUND_IMAGE, uri.toString())
@@ -979,6 +1007,52 @@ final class PadThemeCustomizer {
             Toast.makeText(activity, "Saved pad area background is unavailable",
                     Toast.LENGTH_LONG).show();
         }
+    }
+
+    private void setPadAreaOverlayOpacity(int progress) {
+        int opacity = clamp(progress);
+        preferences.edit().putInt(KEY_PAD_AREA_OVERLAY_OPACITY, opacity).apply();
+        if (padAreaOverlayImage != null) {
+            padAreaOverlayImage.setAlpha(opacity * 255 / 100);
+            padArea.invalidate();
+        }
+    }
+
+    private void applyPadAreaOverlayBackground() {
+        removePadAreaOverlayImage();
+        if (padArea == null) return;
+        String uriText = preferences.getString(KEY_PAD_AREA_OVERLAY_IMAGE, null);
+        if (uriText == null) return;
+        try {
+            Bitmap bitmap = decodeImage(Uri.parse(uriText), 1600);
+            BitmapDrawable image = new BitmapDrawable(activity.getResources(), bitmap);
+            image.setGravity(Gravity.FILL);
+            image.setFilterBitmap(true);
+            image.setDither(true);
+            image.setAlpha(preferences.getInt(KEY_PAD_AREA_OVERLAY_OPACITY, 35) * 255 / 100);
+            padAreaOverlayImage = image;
+            updatePadAreaOverlayBounds();
+            padArea.getOverlay().add(image);
+        } catch (Exception error) {
+            Log.e(TAG, "Could not load pad area overlay image", error);
+            preferences.edit().remove(KEY_PAD_AREA_OVERLAY_IMAGE).apply();
+            Toast.makeText(activity, "Saved pad area overlay is unavailable",
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void removePadAreaOverlayImage() {
+        if (padArea != null && padAreaOverlayImage != null) {
+            padArea.getOverlay().remove(padAreaOverlayImage);
+            padArea.invalidate();
+        }
+        padAreaOverlayImage = null;
+    }
+
+    private void updatePadAreaOverlayBounds() {
+        if (padAreaOverlayImage == null || padArea == null) return;
+        padAreaOverlayImage.setBounds(0, 0, padArea.getWidth(), padArea.getHeight());
+        padArea.invalidate();
     }
 
     private SeekBar addOpacityControl(LinearLayout content, String label, int current,
