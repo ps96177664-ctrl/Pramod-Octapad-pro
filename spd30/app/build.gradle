@@ -1,17 +1,17 @@
 plugins {
-    id 'com.android.application' version '9.5.1'
+    id 'com.android.application' version '8.13.2'
     id 'com.google.gms.google-services' version '4.4.1'
 }
 
 android {
     namespace 'com.pramod.loopmidi'
-    compileSdk 37
+    compileSdk 36
     ndkVersion "28.2.13676358"
 
     defaultConfig {
         applicationId 'pramod.octapad.spd30'
         minSdk 23
-        targetSdk 37
+        targetSdk 36
         versionCode 1
         versionName '1.0'
         externalNativeBuild {

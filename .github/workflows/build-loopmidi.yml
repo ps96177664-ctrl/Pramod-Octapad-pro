@@ -28,7 +28,7 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      # ── 3. Android SDK (compileSdk 37) ────────────────────────────────────
+      # ── 3. Android SDK (compileSdk 36) ────────────────────────────────────
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -37,28 +37,28 @@ jobs:
       - name: Accept all Android SDK licenses
         run: yes | sdkmanager --licenses || true
 
-      - name: Install Android SDK Platform 37 + NDK
-        run: sdkmanager "platforms;android-37" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
+      - name: Install Android SDK Platform 36 + NDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
 
-      # ── 4. Install Gradle 9.6.0 (needed to run 'gradle wrapper') ──────────
+      # ── 4. Install Gradle 8.13 (needed to run 'gradle wrapper') ───────────
       # ubuntu-latest does NOT ship the Gradle CLI; this action installs it.
       # setup-gradle@v4 also handles its own build caching automatically.
-      - name: Set up Gradle 9.6.0
+      - name: Set up Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.6.0'
+          gradle-version: '8.13'
 
       # ── 5. Create Gradle wrapper inside the project ───────────────────────
       - name: Create Gradle wrapper (main app)
         working-directory: gradle_build
         run: |
-          gradle wrapper --gradle-version 9.6.0 --distribution-type bin
+          gradle wrapper --gradle-version 8.13 --distribution-type bin
           chmod +x gradlew
 
       - name: Create Gradle wrapper (Mini Pro)
         working-directory: mini_pro
         run: |
-          gradle wrapper --gradle-version 9.6.0 --distribution-type bin
+          gradle wrapper --gradle-version 8.13 --distribution-type bin
           chmod +x gradlew
 
       # ── 7. Build all 4 app flavors ────────────────────────────────────────
