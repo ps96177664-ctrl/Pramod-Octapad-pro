@@ -2833,10 +2833,14 @@ public class MainActivity extends Activity {
                 if (action != 1 && action != 6 && action != 3) {
                     return false;
                 }
-                if (MainActivity.this.activePointerId[this.index] == pointerId) {
+                if (action == MotionEvent.ACTION_CANCEL
+                        || MainActivity.this.activePointerId[this.index] == pointerId) {
                     MainActivity.this.activePointerId[this.index] = -1;
                     v.setPressed(false);
                     MainActivity.this.stopPadLed(this.index);
+                    if (MainActivity.this.themeCustomizer != null) {
+                        MainActivity.this.themeCustomizer.onPadRelease(this.index);
+                    }
                 }
                 return true;
             } else if (MainActivity.this.activePointerId[this.index] != -1) {

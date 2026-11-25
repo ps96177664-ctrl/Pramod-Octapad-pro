@@ -46,6 +46,7 @@ final class PadThemeCustomizer {
     static final int REQUEST_PAD_IMAGE = 5011;
     static final int REQUEST_BACKGROUND_IMAGE = 5012;
     static final int REQUEST_COMBINED_IMAGE = 5013;
+    static final int REQUEST_PAD_AREA_BACKGROUND = 5014;
     private static final String KEY_PRESET = "theme_preset";
     private static final String KEY_BORDER_ALL = "theme_border_all";
     private static final String KEY_BORDER_COLOR = "theme_border_color_";
@@ -60,6 +61,8 @@ final class PadThemeCustomizer {
     private static final String KEY_COMBINED_IMAGE = "theme_combined_image";
     private static final String KEY_BACKGROUND_IMAGE = "theme_background_image";
     private static final String KEY_BACKGROUND_OPACITY = "theme_background_opacity";
+    private static final String KEY_PAD_AREA_BACKGROUND_IMAGE = "theme_pad_area_background_image";
+    private static final String KEY_PAD_AREA_BACKGROUND_OPACITY = "theme_pad_area_background_opacity";
     private static final String KEY_ANIMATION_MODE = "theme_animation_mode";
     private static final int MODE_IMAGE_PULSE = 0;
     private static final int MODE_SHADOW_PULSE = 1;
@@ -78,6 +81,8 @@ final class PadThemeCustomizer {
     private final Button[] pads;
     private final View root;
     private final Drawable baseRootBackground;
+    private final View padArea;
+    private final Drawable basePadAreaBackground;
     private final View[] backgroundSurfaces;
     private final Drawable[] baseSurfaceBackgrounds;
     private final Button[] toggleButtons;
@@ -96,6 +101,9 @@ final class PadThemeCustomizer {
         this.pads = pads;
         this.root = root;
         this.baseRootBackground = cloneDrawable(root.getBackground());
+        this.padArea = root.findViewById(R.id.padArea);
+        this.basePadAreaBackground = padArea == null
+                ? null : cloneDrawable(padArea.getBackground());
         int[] surfaceIds = {R.id.topControlBar, R.id.fxControlBar, R.id.advControlBar,
                 R.id.favDrumRow, R.id.titleBar, R.id.padArea};
         backgroundSurfaces = new View[surfaceIds.length];
@@ -131,6 +139,7 @@ final class PadThemeCustomizer {
             applyPadImage(i);
         }
         applyGlobalBackground();
+        applyPadAreaBackground();
         applyPadLabels();
         applyToggleStyles();
     }
@@ -320,6 +329,19 @@ final class PadThemeCustomizer {
                 preferences.getInt(KEY_BACKGROUND_OPACITY, 70),
                 this::setBackgroundOpacity, null);
 
+        addSectionTitle(content, "PAD AREA BACKGROUND IMAGE");
+        Button choosePadAreaBackground = addButton(content, "Choose pad area background image");
+        choosePadAreaBackground.setOnClickListener(v -> launchPicker(REQUEST_PAD_AREA_BACKGROUND));
+        Button clearPadAreaBackground = addButton(content, "Remove pad area background image");
+        clearPadAreaBackground.setOnClickListener(v -> {
+            preferences.edit().remove(KEY_PAD_AREA_BACKGROUND_IMAGE).apply();
+            applyPadAreaBackground();
+            Toast.makeText(activity, "Pad area background removed", Toast.LENGTH_SHORT).show();
+        });
+        addOpacityControl(content, "Pad area background opacity",
+                preferences.getInt(KEY_PAD_AREA_BACKGROUND_OPACITY, 35),
+                this::setPadAreaBackgroundOpacity, null);
+
         addSectionTitle(content, "HIT ANIMATION");
         RadioGroup animationModes = new RadioGroup(activity);
         animationModes.setOrientation(RadioGroup.VERTICAL);
@@ -355,7 +377,8 @@ final class PadThemeCustomizer {
 
     boolean handlesPickerRequest(int requestCode) {
         return requestCode == REQUEST_PAD_IMAGE || requestCode == REQUEST_BACKGROUND_IMAGE
-                || requestCode == REQUEST_COMBINED_IMAGE;
+                || requestCode == REQUEST_COMBINED_IMAGE
+                || requestCode == REQUEST_PAD_AREA_BACKGROUND;
     }
 
     void handlePickerResult(int requestCode, int resultCode, Intent data) {
@@ -391,6 +414,9 @@ final class PadThemeCustomizer {
             } else if (requestCode == REQUEST_BACKGROUND_IMAGE) {
                 preferences.edit().putString(KEY_BACKGROUND_IMAGE, uri.toString()).apply();
                 applyGlobalBackground();
+            } else if (requestCode == REQUEST_PAD_AREA_BACKGROUND) {
+                preferences.edit().putString(KEY_PAD_AREA_BACKGROUND_IMAGE, uri.toString()).apply();
+                applyPadAreaBackground();
             } else if (requestCode == REQUEST_COMBINED_IMAGE) {
                 SharedPreferences.Editor editor = preferences.edit()
                         .putString(KEY_BACKGROUND_IMAGE, uri.toString())
@@ -438,16 +464,32 @@ final class PadThemeCustomizer {
         if (image == null) return;
         int restingAlpha = preferences.getInt(KEY_PAD_OPACITY + padIndex, 70) * 255 / 100;
         if (mode == MODE_IMAGE_ON_HIT) {
-            ObjectAnimator reveal = ObjectAnimator.ofInt(
-                    image, "alpha", 0, restingAlpha, 0);
-            reveal.setDuration(240);
-            reveal.start();
+            image.setAlpha(restingAlpha);
+            pad.invalidate();
             return;
         }
         ObjectAnimator pulse = ObjectAnimator.ofInt(
                 image, "alpha", restingAlpha, Math.min(255, restingAlpha + 90), restingAlpha);
         pulse.setDuration(180);
         pulse.start();
+    }
+
+    void onPadRelease(int padIndex) {
+        if (preferences.getInt(KEY_ANIMATION_MODE, MODE_IMAGE_PULSE) != MODE_IMAGE_ON_HIT
+                || padIndex < 0 || padIndex >= pads.length) {
+            return;
+        }
+        Drawable background = pads[padIndex].getBackground();
+        if (!(background instanceof LayerDrawable)) return;
+        LayerDrawable layers = (LayerDrawable) background;
+        for (int i = 1; i < layers.getNumberOfLayers(); i++) {
+            Drawable layer = layers.getDrawable(i);
+            if (layer instanceof BitmapDrawable) {
+                layer.setAlpha(0);
+                pads[padIndex].invalidate();
+                return;
+            }
+        }
     }
 
     private void launchPicker(int requestCode) {
@@ -500,6 +542,7 @@ final class PadThemeCustomizer {
                 root.setBackgroundColor(presetRootColor());
             }
             applyPresetSurfaceBackgrounds();
+            applyPadAreaBackground();
             return;
         }
         try {
@@ -512,6 +555,7 @@ final class PadThemeCustomizer {
             for (View surface : backgroundSurfaces) {
                 if (surface != null) surface.setBackgroundColor(Color.TRANSPARENT);
             }
+            applyPadAreaBackground();
         } catch (Exception error) {
             Log.e(TAG, "Could not load global theme background", error);
             SharedPreferences.Editor editor = preferences.edit().remove(KEY_BACKGROUND_IMAGE);
@@ -526,6 +570,7 @@ final class PadThemeCustomizer {
                 root.setBackgroundColor(presetRootColor());
             }
             applyPresetSurfaceBackgrounds();
+            applyPadAreaBackground();
             applyTogglePhoto();
             Toast.makeText(activity, "Saved background image is unavailable",
                     Toast.LENGTH_LONG).show();
@@ -868,7 +913,10 @@ final class PadThemeCustomizer {
             LayerDrawable layers = (LayerDrawable) background;
             if (layers.getNumberOfLayers() > 1
                     && layers.getDrawable(1) instanceof BitmapDrawable) {
-                layers.getDrawable(1).setAlpha(opacity * 255 / 100);
+                boolean hiddenUntilHit = preferences.getInt(
+                        KEY_ANIMATION_MODE, MODE_IMAGE_PULSE) == MODE_IMAGE_ON_HIT
+                        && !pads[padIndex].isPressed();
+                layers.getDrawable(1).setAlpha(hiddenUntilHit ? 0 : opacity * 255 / 100);
                 pads[padIndex].invalidate();
             }
         }
@@ -888,6 +936,52 @@ final class PadThemeCustomizer {
         }
     }
 
+    private void setPadAreaBackgroundOpacity(int progress) {
+        int opacity = clamp(progress);
+        preferences.edit().putInt(KEY_PAD_AREA_BACKGROUND_OPACITY, opacity).apply();
+        if (padArea == null) return;
+        Drawable background = padArea.getBackground();
+        if (background instanceof LayerDrawable) {
+            LayerDrawable layers = (LayerDrawable) background;
+            if (layers.getNumberOfLayers() > 1
+                    && layers.getDrawable(1) instanceof BitmapDrawable) {
+                layers.getDrawable(1).setAlpha(opacity * 255 / 100);
+                padArea.invalidate();
+            }
+        }
+    }
+
+    private void applyPadAreaBackground() {
+        if (padArea == null) return;
+        String uriText = preferences.getString(KEY_PAD_AREA_BACKGROUND_IMAGE, null);
+        boolean globalImageActive = preferences.getString(KEY_BACKGROUND_IMAGE, null) != null;
+        if (uriText == null) {
+            padArea.setBackground(globalImageActive
+                    ? new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
+                    : cloneDrawable(basePadAreaBackground));
+            return;
+        }
+        try {
+            Bitmap bitmap = decodeImage(Uri.parse(uriText), 1600);
+            BitmapDrawable image = new BitmapDrawable(activity.getResources(), bitmap);
+            image.setFilterBitmap(true);
+            image.setDither(true);
+            image.setAlpha(preferences.getInt(KEY_PAD_AREA_BACKGROUND_OPACITY, 35) * 255 / 100);
+            Drawable base = globalImageActive
+                    ? new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
+                    : cloneDrawable(basePadAreaBackground);
+            if (base == null) base = new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT);
+            padArea.setBackground(new LayerDrawable(new Drawable[]{base, image}));
+        } catch (Exception error) {
+            Log.e(TAG, "Could not load pad area background image", error);
+            preferences.edit().remove(KEY_PAD_AREA_BACKGROUND_IMAGE).apply();
+            padArea.setBackground(globalImageActive
+                    ? new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
+                    : cloneDrawable(basePadAreaBackground));
+            Toast.makeText(activity, "Saved pad area background is unavailable",
+                    Toast.LENGTH_LONG).show();
+        }
+    }
     private SeekBar addOpacityControl(LinearLayout content, String label, int current,
                                       ProgressAction action, TextView[] labelOut) {
         TextView title = new TextView(activity);
